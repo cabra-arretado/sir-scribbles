@@ -1,0 +1,20 @@
+export const LIMITS = Object.freeze({
+  prompt: 128 * 1024,
+  frame: 8 * 1024 * 1024,
+  session: 16 * 1024 * 1024,
+  stderr: 64 * 1024,
+  permissions: 16,
+  startupMs: 15_000,
+  cancellationMs: 5_000,
+  shutdownMs: 2_000,
+});
+
+export class OperationalError extends Error {
+  constructor(code) {
+    super(code);
+    this.name = 'OperationalError';
+    this.code = code;
+  }
+}
+
+export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
