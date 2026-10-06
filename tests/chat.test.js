@@ -29,6 +29,50 @@ function create() {
 }
 const selected = Object.freeze({ path: 'notes/example.md', from: 2, to: 3, text: '<img src="https://never.test"> exact selection' });
 
+test('first send with a saved executable starts once, then sends after ACP is ready', async () => {
+  const { controller, session, launches } = create();
+  controller.setDraft('hello');
+  const sending = controller.send('/fixture');
+  const duplicate = controller.send('/fixture');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(launches(), 1);
+  assert.deepEqual(session.sent, ['hello']);
+  session.complete();
+  await Promise.all([sending, duplicate]);
+});
+
+test('auto-start preserves draft on failure and does not start for an empty or oversized prompt', async () => {
+  const { controller, launches } = create();
+  await controller.send('/fixture');
+  controller.setDraft('x'.repeat(LIMITS.prompt + 1));
+  await controller.send('/fixture');
+  assert.equal(launches(), 0);
+  controller.validate = async () => { throw new OperationalError('EXECUTABLE_NOT_AVAILABLE'); };
+  controller.setDraft('keep this');
+  await controller.send('/fixture');
+  assert.equal(controller.draft, 'keep this');
+  assert.equal(controller.messages.length, 0);
+  assert.match(controller.error, /Settings/);
+});
+
+test('reset, closure and draft changes during auto-start never send an old prompt', async () => {
+  for (const action of ['reset', 'close', 'edit']) {
+    const { controller, session } = create();
+    let resume;
+    controller.validate = () => new Promise(resolve => { resume = resolve; });
+    controller.setDraft('original');
+    const sending = controller.send('/fixture');
+    if (action === 'reset') await controller.newChat();
+    else if (action === 'close') await controller.dispose();
+    else controller.setDraft('new draft');
+    resume();
+    await sending;
+    assert.deepEqual(session.sent, []);
+    if (action === 'edit') assert.equal(controller.draft, 'new draft');
+    await controller.dispose();
+  }
+});
+
 test('only explicit Start launches; typing, attaching and removing launch nothing', async () => {
   const { controller, launches } = create();
   controller.setDraft('draft');

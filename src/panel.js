@@ -94,7 +94,7 @@ export class ChatPanel {
     this.startArea.append(this.path,
       this.el('p', 'obsidian-noter-caption', 'Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       this.start);
-    this.pathHelp = this.el('p', 'obsidian-noter-caption', 'Executable saved. Change it in Settings → Community plugins → obsidian-noter.');
+    this.pathHelp = this.el('p', 'obsidian-noter-caption', 'Executable saved. Send your first prompt to start Kiro, or use Start Kiro. Change the path in Settings → Community plugins → obsidian-noter.');
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea, this.el('p', 'obsidian-noter-preview-label', 'Developer preview · Kiro V3 compatibility is unverified'));
     this.transcript.append(this.empty);
@@ -116,7 +116,7 @@ export class ChatPanel {
     this.composer.addEventListener('keydown', event => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
-        if (!event.repeat && !this.send.disabled) void this.model.send();
+        if (!event.repeat && !this.send.disabled) void this.model.send(this.actions.getPath().trim());
       }
     });
     const toolbar = this.el('div', 'obsidian-noter-composer-toolbar');
@@ -127,7 +127,7 @@ export class ChatPanel {
       await this.attachContext('attachFile', 'OPEN_NOTE_FIRST');
     }, 'obsidian-noter-attach');
     this.attachFile.title = 'Attach the full current Markdown note, including unsaved edits';
-    this.send = this.button('Send ↑', () => { void this.model.send(); }, 'mod-cta obsidian-noter-primary');
+    this.send = this.button('Send ↑', () => { void this.model.send(this.actions.getPath().trim()); }, 'mod-cta obsidian-noter-primary');
     toolbar.append(this.attach, this.attachFile, this.send);
     composer.append(this.composer, toolbar);
     footer.append(composer);
@@ -156,7 +156,9 @@ export class ChatPanel {
   }
   renderControls() {
     const model = this.model;
-    this.send.disabled = model.state !== 'ready' || model.resetting || !(model.draft.trim() || model.selection);
+    const canStart = model.state === 'not-started' && Boolean(this.actions.getPath().trim());
+    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection);
+    this.send.title = canStart ? 'Start Kiro and send this prompt' : 'Send prompt';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());

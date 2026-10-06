@@ -4,7 +4,7 @@
 
 The stage-1 experiment and stage-2 Obsidian sidebar are implemented. The user
 authorized the UI before the real gate in [compatibility.md](compatibility.md).
-It is an installable developer preview with explicit Start, selection snapshots,
+It is an installable developer preview with explicit Start or first-Send startup, selection snapshots,
 restricted Markdown reply rendering, approval inspection, Stop and New chat. The
 manifest declares an initial Obsidian 1.5.0+ baseline; real app verification is
 pending. The product specification includes the requested composer, full-note context, and Markdown reply updates.
@@ -125,3 +125,8 @@ Content is held in memory only by the client; the spike writes nothing to disk.
 Its terminal output is an explicit inspection surface and terminal scrollback
 may retain it. It is not production plugin diagnostics. Kiro/provider storage,
 OS swap and crash dumps remain outside this promise.
+
+Normal app quit registers an awaited Obsidian Tasks cleanup promise, shared with
+plugin unload. Force quits and crashes cannot guarantee process cleanup.
+Malformed wiki-link delimiter positions are indexed once per inline parse to
+avoid repeated scans of a reply; regression tests cover large unmatched prefixes.

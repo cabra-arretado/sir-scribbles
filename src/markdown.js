@@ -1,13 +1,38 @@
 import MarkdownIt from 'markdown-it';
 
 const markdown = new MarkdownIt({ html: false, linkify: false, maxNesting: 32 });
+const delimiterIndexes = new WeakMap();
+function nextPosition(positions, from) {
+  let low = 0, high = positions.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (positions[middle] < from) low = middle + 1;
+    else high = middle;
+  }
+  return positions[low] ?? Infinity;
+}
+function delimiters(state) {
+  let index = delimiterIndexes.get(state);
+  if (!index) {
+    index = { closes: [], newlines: [] };
+    // Index once per inline parse, including silent/backtracking probes. Never
+    // repeatedly scan or slice the remainder for malformed opening brackets.
+    for (let i = 0; i < state.src.length; i++) {
+      if (state.src[i] === ']' && state.src[i + 1] === ']') index.closes.push(i);
+      else if (state.src[i] === '\n') index.newlines.push(i);
+    }
+    delimiterIndexes.set(state, index);
+  }
+  return index;
+}
 markdown.inline.ruler.before('link', 'vault_link', (state, silent) => {
   const start = state.pos;
   if (state.src.slice(start, start + 2) !== '[[' || state.src[start - 1] === '!') return false;
-  const end = state.src.indexOf(']]', start + 2);
-  if (end < 0 || end >= state.posMax) return false;
+  const index = delimiters(state);
+  const end = nextPosition(index.closes, start + 2);
+  if (end >= state.posMax || nextPosition(index.newlines, start + 2) < end) return false;
   const content = state.src.slice(start + 2, end);
-  if (!content || content.includes('\n')) return false;
+  if (!content) return false;
   const divider = content.indexOf('|');
   const target = divider < 0 ? content : content.slice(0, divider);
   const label = divider < 0 ? content : content.slice(divider + 1);

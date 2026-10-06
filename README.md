@@ -54,8 +54,10 @@ before installing `obsidian-noter`. Restart Obsidian and enable **obsidian-noter
    for the path again. Change it under **Settings → Community plugins → obsidian-noter**
    if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
-2. Review the displayed vault directory and click **Start Kiro**. Opening the
-   plugin/sidebar or typing a prompt never starts a process.
+2. Review the displayed vault directory. With a saved executable, sending your
+   first prompt starts ACP and sends after initialization succeeds. You can also
+   click **Start Kiro** first. Opening the sidebar or typing never starts a process.
+   Starting Kiro may initialize its configured hooks and MCP servers.
 3. Type a prompt. Select text in a Markdown editor and click **Attach selection**
    to capture only that text, with its relative note path and line range. Inspect,
    replace or remove the snapshot before sending. Changes to the note do not
@@ -80,6 +82,12 @@ before installing `obsidian-noter`. Restart Obsidian and enable **obsidian-noter
    Start. Closing the panel or unloading the plugin discards client content and
    stops the owned process group. Uncertain cleanup stays visible and prevents
    starting another process until recovery succeeds.
+
+On a normal Obsidian quit, the plugin registers an awaited cleanup task: it ends
+ACP, sends SIGTERM to its owned process group, and escalates to SIGKILL after two
+seconds if needed. The conversation is discarded; reopening creates a fresh
+session. Crashes, force quits, and descendants that detach from the process group
+cannot be guaranteed to clean up.
 
 Only the executable path is saved in plugin settings. The plugin does not archive
 prompts, attachments, transcripts, session IDs or tool details. Kiro/provider

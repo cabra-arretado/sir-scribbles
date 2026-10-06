@@ -149,17 +149,30 @@ export class ChatController extends EventEmitter {
     this.changed();
   }
 
-  async send() {
-    if (this.state !== 'ready' || this.resetting || this.disposed) return;
+  async send(executable = '') {
+    if (this.resetting || this.disposed || !['not-started', 'ready'].includes(this.state)) return;
+    if (this.state === 'not-started' && !executable) return;
     let prompt;
     try { prompt = composePrompt(this.draft, this.selection); }
     catch (error) { this.setError(error.code); return; }
-    const session = this.session;
-    const generation = this.generation;
     const originalDraft = this.draft;
     const originalSelection = this.selection;
+    const sourcePath = this.selection?.path ?? this.getSourcePath();
+    if (this.state === 'not-started') {
+      const starting = this.start(executable);
+      const startupGeneration = this.generation;
+      await starting;
+      if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== 'ready') return;
+      if (this.draft !== originalDraft || this.selection !== originalSelection) {
+        this.error = 'The draft changed while Kiro was starting. Review it and send again.';
+        this.changed();
+        return;
+      }
+    }
+    const session = this.session;
+    const generation = this.generation;
     if (!this.retainUi(Buffer.byteLength(prompt))) return;
-    this.turnSourcePath = this.selection?.path ?? this.getSourcePath();
+    this.turnSourcePath = sourcePath;
     this.messages.push({ role: 'user', text: prompt, timestamp: Date.now() });
     // Preserve a failure snapshot in the user entry; retain the composer draft
     // until successful settlement and never overwrite a newer draft.

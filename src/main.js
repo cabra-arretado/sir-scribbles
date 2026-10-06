@@ -97,6 +97,7 @@ class NoterSettings extends PluginSettingTab {
 export default class ObsidianNoterPlugin extends Plugin {
   async onload() {
     this.unloaded = false;
+    this.shutdownPending = null;
     const saved = await this.loadData();
     this.executablePath = typeof saved?.executablePath === 'string' ? saved.executablePath : '';
     this.lastEditor = null;
@@ -107,6 +108,11 @@ export default class ObsidianNoterPlugin extends Plugin {
     this.addRibbonIcon('messages-square', 'Open obsidian-noter', () => { void this.openChat(); });
     this.addCommand({ id: 'open-obsidian-noter', name: 'Open obsidian-noter', callback: () => { void this.openChat(); } });
     this.addSettingTab(new NoterSettings(this.app, this));
+    this.registerEvent(this.app.workspace.on('quit', tasks => {
+      // Obsidian waits for Tasks during a normal quit. Plugin onunload alone
+      // cannot keep the app alive while asynchronous process cleanup finishes.
+      tasks.add(() => this.shutdown());
+    }));
     this.registerEvent(this.app.workspace.on('active-leaf-change', leaf => {
       if (leaf?.view instanceof MarkdownView) this.lastEditor = leaf.view;
     }));
@@ -128,12 +134,16 @@ export default class ObsidianNoterPlugin extends Plugin {
     const leaf = this.app.workspace.getRightLeaf(false);
     if (leaf) { await leaf.setViewState({ type: VIEW_TYPE, active: true }); await this.app.workspace.revealLeaf(leaf); }
   }
-  onunload() {
+  async shutdown() {
     this.unloaded = true;
     this.activeView?.panel?.dispose();
     this.lastEditor = null;
-    void this.controller?.dispose().then(clean => {
+    if (!this.shutdownPending) this.shutdownPending = (async () => {
+      const clean = (await (this.cleanupPending ?? this.controller?.dispose())) ?? true;
       if (!clean) new Notice('Kiro cleanup could not be confirmed on unload. Check the CLI process in your terminal.', 0);
-    });
+      return clean;
+    })();
+    return this.shutdownPending;
   }
+  onunload() { void this.shutdown(); }
 }

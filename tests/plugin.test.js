@@ -111,3 +111,25 @@ test('note navigation uses Obsidian API and refuses links to another vault', asy
   ]);
   assert.equal(launches(), 0);
 });
+
+test('normal quit registers an awaited cleanup task shared with unload', async t => {
+  const { plugin, leaf, events } = create(t);
+  await plugin.onload();
+  await leaf.setViewState();
+  let finish;
+  let calls = 0;
+  plugin.controller.dispose = () => { calls++; return new Promise(resolve => { finish = resolve; }); };
+  let task;
+  events.get('quit')({ add: callback => { task = callback(); } });
+  assert.equal(plugin.unloaded, true);
+  plugin.onunload();
+  assert.equal(calls, 1);
+  let settled = false;
+  task.then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  finish(true);
+  await task;
+  assert.equal(settled, true);
+  plugin.controller = null;
+});

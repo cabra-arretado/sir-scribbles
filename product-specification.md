@@ -22,7 +22,7 @@ The reviewed Agent Client plugin provides substantially more functionality than 
 2. Open the **obsidian-noter** sidebar using the ribbon button or command palette.
 3. On first use, select the existing Kiro executable. The plugin validates the path without running it. The user authenticates separately through their normal CLI workflow.
 4. The panel shows the vault directory and a **Start Kiro** button. A short disclosure states: “Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.”
-5. Click Start. The panel transitions through Starting to Ready, or displays an actionable error.
+5. Click Start, or send a first prompt with the saved executable to start ACP automatically. The panel transitions through Starting to Ready, or displays an actionable error. Draft changes or reset during startup prevent the original prompt from being sent.
 6. Type or paste a prompt. Optionally select text in a note and click **Attach selection**, inspect its preview, then click Send. No note content is attached automatically.
 7. Read streamed text and tool activity. If Kiro requests permission, inspect the complete action details and select an offered one-time Allow or Deny choice.
 8. Click Stop to request cancellation. The panel remains in Stopping until the turn settles. If it does not settle promptly, offer **Force stop Kiro**.
@@ -47,7 +47,7 @@ Present the working directory as context, not as a promise that Kiro can access 
 
 | ID | Requirement | Acceptance criterion |
 |---|---|---|
-| FR-01 | Explicit startup | No CLI process starts on plugin enablement, vault open, sidebar open, note rendering, or restored layout. Only Start launches it. |
+| FR-01 | Explicit startup | No CLI process starts on plugin enablement, vault open, sidebar open, note rendering, or restored layout. Start or sending the first valid prompt with a saved executable launches it. |
 | FR-02 | Single session | Opening another panel focuses the existing panel. Concurrent processes, conversations, and prompts are prevented. |
 | FR-03 | Explicit context | Prompts contain only composer text and the selection or full Markdown note explicitly attached by the user. Attach selection snapshots the selected editor text without reading the full note. Show the complete preview and Remove action before sending. No background note/clipboard reads or automatic context changes. |
 | FR-04 | Streaming | Text updates appear incrementally and in order. Unknown optional update types do not crash the conversation. |
@@ -141,7 +141,7 @@ Capability negotiation is part of the [ACP initialization contract](https://agen
 
 | State | Available actions and behavior |
 |---|---|
-| Not started | Edit prompt, configure path, Start. No process exists. |
+| Not started | Edit prompt, configure path, Start, or Send with a saved executable. No process exists. |
 | Starting | Startup status and Stop; sending disabled. |
 | Ready | Send, New chat, close. |
 | Working | Stream updates; Stop. Composer may hold an unsent draft, but sending is disabled. |

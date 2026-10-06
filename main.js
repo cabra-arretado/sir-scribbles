@@ -953,8 +953,9 @@ var ChatController = class extends import_node_events2.EventEmitter {
     } else return;
     this.changed();
   }
-  async send() {
-    if (this.state !== "ready" || this.resetting || this.disposed) return;
+  async send(executable = "") {
+    if (this.resetting || this.disposed || !["not-started", "ready"].includes(this.state)) return;
+    if (this.state === "not-started" && !executable) return;
     let prompt;
     try {
       prompt = composePrompt(this.draft, this.selection);
@@ -962,12 +963,24 @@ var ChatController = class extends import_node_events2.EventEmitter {
       this.setError(error.code);
       return;
     }
-    const session = this.session;
-    const generation = this.generation;
     const originalDraft = this.draft;
     const originalSelection = this.selection;
+    const sourcePath = this.selection?.path ?? this.getSourcePath();
+    if (this.state === "not-started") {
+      const starting = this.start(executable);
+      const startupGeneration = this.generation;
+      await starting;
+      if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== "ready") return;
+      if (this.draft !== originalDraft || this.selection !== originalSelection) {
+        this.error = "The draft changed while Kiro was starting. Review it and send again.";
+        this.changed();
+        return;
+      }
+    }
+    const session = this.session;
+    const generation = this.generation;
     if (!this.retainUi(Buffer.byteLength(prompt))) return;
-    this.turnSourcePath = this.selection?.path ?? this.getSourcePath();
+    this.turnSourcePath = sourcePath;
     this.messages.push({ role: "user", text: prompt, timestamp: Date.now() });
     this.draft = "";
     this.selection = null;
@@ -5083,15 +5096,15 @@ function strikethrough_tokenize(state, silent) {
   state.pos += scanned.length;
   return true;
 }
-function postProcess$1(state, delimiters) {
+function postProcess$1(state, delimiters2) {
   let token;
   const loneMarkers = [];
-  const max = delimiters.length;
+  const max = delimiters2.length;
   for (let i = 0; i < max; i++) {
-    const startDelim = delimiters[i];
+    const startDelim = delimiters2[i];
     if (startDelim.marker !== 126) continue;
     if (startDelim.end === -1) continue;
-    const endDelim = delimiters[startDelim.end];
+    const endDelim = delimiters2[startDelim.end];
     token = state.tokens[startDelim.token];
     token.type = "s_open";
     token.tag = "s";
@@ -5124,8 +5137,8 @@ function strikethrough_postProcess(state) {
   postProcess$1(state, state.delimiters);
   for (let curr = 0; curr < max; curr++) {
     var _tokens_meta$curr;
-    const delimiters = (_tokens_meta$curr = tokens_meta[curr]) === null || _tokens_meta$curr === void 0 ? void 0 : _tokens_meta$curr.delimiters;
-    if (delimiters) postProcess$1(state, delimiters);
+    const delimiters2 = (_tokens_meta$curr = tokens_meta[curr]) === null || _tokens_meta$curr === void 0 ? void 0 : _tokens_meta$curr.delimiters;
+    if (delimiters2) postProcess$1(state, delimiters2);
   }
 }
 var strikethrough_default = {
@@ -5153,14 +5166,14 @@ function emphasis_tokenize(state, silent) {
   state.pos += scanned.length;
   return true;
 }
-function postProcess(state, delimiters) {
-  const max = delimiters.length;
+function postProcess(state, delimiters2) {
+  const max = delimiters2.length;
   for (let i = max - 1; i >= 0; i--) {
-    const startDelim = delimiters[i];
+    const startDelim = delimiters2[i];
     if (startDelim.marker !== 95 && startDelim.marker !== 42) continue;
     if (startDelim.end === -1) continue;
-    const endDelim = delimiters[startDelim.end];
-    const isStrong = i > 0 && delimiters[i - 1].end === startDelim.end + 1 && delimiters[i - 1].marker === startDelim.marker && delimiters[i - 1].token === startDelim.token - 1 && delimiters[startDelim.end + 1].token === endDelim.token + 1;
+    const endDelim = delimiters2[startDelim.end];
+    const isStrong = i > 0 && delimiters2[i - 1].end === startDelim.end + 1 && delimiters2[i - 1].marker === startDelim.marker && delimiters2[i - 1].token === startDelim.token - 1 && delimiters2[startDelim.end + 1].token === endDelim.token + 1;
     const ch = String.fromCharCode(startDelim.marker);
     const token_o = state.tokens[startDelim.token];
     token_o.type = isStrong ? "strong_open" : "em_open";
@@ -5175,8 +5188,8 @@ function postProcess(state, delimiters) {
     token_c.markup = isStrong ? ch + ch : ch;
     token_c.content = "";
     if (isStrong) {
-      state.tokens[delimiters[i - 1].token].content = "";
-      state.tokens[delimiters[startDelim.end + 1].token].content = "";
+      state.tokens[delimiters2[i - 1].token].content = "";
+      state.tokens[delimiters2[startDelim.end + 1].token].content = "";
       i--;
     }
   }
@@ -5187,8 +5200,8 @@ function emphasis_post_process(state) {
   postProcess(state, state.delimiters);
   for (let curr = 0; curr < max; curr++) {
     var _tokens_meta$curr;
-    const delimiters = (_tokens_meta$curr = tokens_meta[curr]) === null || _tokens_meta$curr === void 0 ? void 0 : _tokens_meta$curr.delimiters;
-    if (delimiters) postProcess(state, delimiters);
+    const delimiters2 = (_tokens_meta$curr = tokens_meta[curr]) === null || _tokens_meta$curr === void 0 ? void 0 : _tokens_meta$curr.delimiters;
+    if (delimiters2) postProcess(state, delimiters2);
   }
 }
 var emphasis_default = {
@@ -5477,17 +5490,17 @@ function entity(state, silent) {
   }
   return false;
 }
-function processDelimiters(delimiters) {
+function processDelimiters(delimiters2) {
   const openersBottom = {};
-  const max = delimiters.length;
+  const max = delimiters2.length;
   if (!max) return;
   let headerIdx = 0;
   let lastTokenIdx = -2;
   const jumps = [];
   for (let closerIdx = 0; closerIdx < max; closerIdx++) {
-    const closer = delimiters[closerIdx];
+    const closer = delimiters2[closerIdx];
     jumps.push(0);
-    if (delimiters[headerIdx].marker !== closer.marker || lastTokenIdx !== closer.token - 1) headerIdx = closerIdx;
+    if (delimiters2[headerIdx].marker !== closer.marker || lastTokenIdx !== closer.token - 1) headerIdx = closerIdx;
     lastTokenIdx = closer.token;
     closer.length = closer.length || 0;
     if (!closer.close) continue;
@@ -5503,7 +5516,7 @@ function processDelimiters(delimiters) {
     let openerIdx = headerIdx - jumps[headerIdx] - 1;
     let newMinOpenerIdx = openerIdx;
     for (; openerIdx > minOpenerIdx; openerIdx -= jumps[openerIdx] + 1) {
-      const opener = delimiters[openerIdx];
+      const opener = delimiters2[openerIdx];
       if (opener.marker !== closer.marker) continue;
       if (opener.open && opener.end < 0) {
         let isOddMatch = false;
@@ -5513,7 +5526,7 @@ function processDelimiters(delimiters) {
           }
         }
         if (!isOddMatch) {
-          const lastJump = openerIdx > 0 && !delimiters[openerIdx - 1].open ? jumps[openerIdx - 1] + 1 : 0;
+          const lastJump = openerIdx > 0 && !delimiters2[openerIdx - 1].open ? jumps[openerIdx - 1] + 1 : 0;
           jumps[closerIdx] = closerIdx - openerIdx + lastJump;
           jumps[openerIdx] = lastJump;
           closer.open = false;
@@ -5534,8 +5547,8 @@ function link_pairs(state) {
   processDelimiters(state.delimiters);
   for (let curr = 0; curr < max; curr++) {
     var _tokens_meta$curr;
-    const delimiters = (_tokens_meta$curr = tokens_meta[curr]) === null || _tokens_meta$curr === void 0 ? void 0 : _tokens_meta$curr.delimiters;
-    if (delimiters) processDelimiters(delimiters);
+    const delimiters2 = (_tokens_meta$curr = tokens_meta[curr]) === null || _tokens_meta$curr === void 0 ? void 0 : _tokens_meta$curr.delimiters;
+    if (delimiters2) processDelimiters(delimiters2);
   }
 }
 function fragments_join(state) {
@@ -6090,13 +6103,36 @@ var MarkdownItCallable = callable(MarkdownIt);
 
 // src/markdown.js
 var markdown = new MarkdownItCallable({ html: false, linkify: false, maxNesting: 32 });
+var delimiterIndexes = /* @__PURE__ */ new WeakMap();
+function nextPosition(positions, from) {
+  let low = 0, high = positions.length;
+  while (low < high) {
+    const middle = low + high >>> 1;
+    if (positions[middle] < from) low = middle + 1;
+    else high = middle;
+  }
+  return positions[low] ?? Infinity;
+}
+function delimiters(state) {
+  let index = delimiterIndexes.get(state);
+  if (!index) {
+    index = { closes: [], newlines: [] };
+    for (let i = 0; i < state.src.length; i++) {
+      if (state.src[i] === "]" && state.src[i + 1] === "]") index.closes.push(i);
+      else if (state.src[i] === "\n") index.newlines.push(i);
+    }
+    delimiterIndexes.set(state, index);
+  }
+  return index;
+}
 markdown.inline.ruler.before("link", "vault_link", (state, silent) => {
   const start = state.pos;
   if (state.src.slice(start, start + 2) !== "[[" || state.src[start - 1] === "!") return false;
-  const end = state.src.indexOf("]]", start + 2);
-  if (end < 0 || end >= state.posMax) return false;
+  const index = delimiters(state);
+  const end = nextPosition(index.closes, start + 2);
+  if (end >= state.posMax || nextPosition(index.newlines, start + 2) < end) return false;
   const content = state.src.slice(start + 2, end);
-  if (!content || content.includes("\n")) return false;
+  if (!content) return false;
   const divider = content.indexOf("|");
   const target = divider < 0 ? content : content.slice(0, divider);
   const label = divider < 0 ? content : content.slice(divider + 1);
@@ -6320,7 +6356,7 @@ var ChatPanel = class {
       this.el("p", "obsidian-noter-caption", "Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
       this.start
     );
-    this.pathHelp = this.el("p", "obsidian-noter-caption", "Executable saved. Change it in Settings \u2192 Community plugins \u2192 obsidian-noter.");
+    this.pathHelp = this.el("p", "obsidian-noter-caption", "Executable saved. Send your first prompt to start Kiro, or use Start Kiro. Change the path in Settings \u2192 Community plugins \u2192 obsidian-noter.");
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea, this.el("p", "obsidian-noter-preview-label", "Developer preview \xB7 Kiro V3 compatibility is unverified"));
     this.transcript.append(this.empty);
@@ -6343,7 +6379,7 @@ var ChatPanel = class {
     this.composer.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
-        if (!event.repeat && !this.send.disabled) void this.model.send();
+        if (!event.repeat && !this.send.disabled) void this.model.send(this.actions.getPath().trim());
       }
     });
     const toolbar = this.el("div", "obsidian-noter-composer-toolbar");
@@ -6355,7 +6391,7 @@ var ChatPanel = class {
     }, "obsidian-noter-attach");
     this.attachFile.title = "Attach the full current Markdown note, including unsaved edits";
     this.send = this.button("Send \u2191", () => {
-      void this.model.send();
+      void this.model.send(this.actions.getPath().trim());
     }, "mod-cta obsidian-noter-primary");
     toolbar.append(this.attach, this.attachFile, this.send);
     composer.append(this.composer, toolbar);
@@ -6388,7 +6424,9 @@ var ChatPanel = class {
   }
   renderControls() {
     const model = this.model;
-    this.send.disabled = model.state !== "ready" || model.resetting || !(model.draft.trim() || model.selection);
+    const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim());
+    this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection);
+    this.send.title = canStart ? "Start Kiro and send this prompt" : "Send prompt";
     this.start.disabled = model.state !== "not-started" || model.resetting || this.startPending;
     this.path.disabled = model.state !== "not-started" || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());
@@ -6658,6 +6696,7 @@ var NoterSettings = class extends import_obsidian.PluginSettingTab {
 var ObsidianNoterPlugin = class extends import_obsidian.Plugin {
   async onload() {
     this.unloaded = false;
+    this.shutdownPending = null;
     const saved = await this.loadData();
     this.executablePath = typeof saved?.executablePath === "string" ? saved.executablePath : "";
     this.lastEditor = null;
@@ -6672,6 +6711,9 @@ var ObsidianNoterPlugin = class extends import_obsidian.Plugin {
       void this.openChat();
     } });
     this.addSettingTab(new NoterSettings(this.app, this));
+    this.registerEvent(this.app.workspace.on("quit", (tasks) => {
+      tasks.add(() => this.shutdown());
+    }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       if (leaf?.view instanceof import_obsidian.MarkdownView) this.lastEditor = leaf.view;
     }));
@@ -6698,13 +6740,19 @@ var ObsidianNoterPlugin = class extends import_obsidian.Plugin {
       await this.app.workspace.revealLeaf(leaf);
     }
   }
-  onunload() {
+  async shutdown() {
     this.unloaded = true;
     this.activeView?.panel?.dispose();
     this.lastEditor = null;
-    void this.controller?.dispose().then((clean) => {
+    if (!this.shutdownPending) this.shutdownPending = (async () => {
+      const clean = await (this.cleanupPending ?? this.controller?.dispose()) ?? true;
       if (!clean) new import_obsidian.Notice("Kiro cleanup could not be confirmed on unload. Check the CLI process in your terminal.", 0);
-    });
+      return clean;
+    })();
+    return this.shutdownPending;
+  }
+  onunload() {
+    void this.shutdown();
   }
 };
 /*! Bundled license information:

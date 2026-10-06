@@ -210,6 +210,21 @@ test('saved executable starts without reconfirmation and settings changes take e
   assert.deepEqual(starts, ['/fixture/kiro', '/fixture/new-kiro']);
 });
 
+test('first Send is enabled with a saved executable and forwards it without starting on typing', t => {
+  const { model, panel, dom } = create(t);
+  const sent = [];
+  model.send = path => sent.push(path);
+  panel.composer.value = 'first question';
+  panel.composer.dispatchEvent(new dom.window.Event('input'));
+  assert.deepEqual(sent, []);
+  assert.equal(panel.send.disabled, false);
+  panel.composer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter' }));
+  assert.deepEqual(sent, ['/fixture/kiro']);
+  panel.actions.getPath = () => '';
+  panel.render();
+  assert.equal(panel.send.disabled, true);
+});
+
 test('wiki and Markdown note links open only on click with the reply source path', t => {
   const { model, panel, root, dom } = create(t);
   const opened = [];
