@@ -6,7 +6,7 @@ import { composePrompt } from './draft.js';
 
 export const ERROR_TEXT = {
   ABSOLUTE_EXECUTABLE_REQUIRED: 'Choose the absolute path to your installed Kiro executable.',
-  EXECUTABLE_NOT_AVAILABLE: 'That file is unavailable or not executable. Check the installed Kiro path.',
+  EXECUTABLE_NOT_AVAILABLE: 'That file is unavailable or not executable. Change the Kiro path in Settings → Community plugins → obsidian-noter, then start a new chat to retry.',
   MACOS_REQUIRED: 'This preview supports macOS desktop only.',
   STARTUP_TIMEOUT: 'Kiro did not become ready within 15 seconds. Check your CLI login and V3 installation, then start a new chat.',
   INCOMPATIBLE_PROTOCOL: 'Kiro returned an unsupported protocol. Check your V3 installation.',
@@ -26,12 +26,14 @@ export const ERROR_TEXT = {
 export const errorText = code => ERROR_TEXT[code] ?? `Kiro stopped (${code || 'UNKNOWN_ERROR'}). The previous task outcome may be uncertain. Start a new chat.`;
 
 export class ChatController extends EventEmitter {
-  constructor(cwd, { launch = launchKiro, validate = validateExecutable, createSession = child => new AcpSession(child) } = {}) {
+  constructor(cwd, { launch = launchKiro, validate = validateExecutable, createSession = child => new AcpSession(child), getSourcePath = () => '' } = {}) {
     super();
     this.cwd = cwd;
     this.launch = launch;
     this.validate = validate;
     this.createSession = createSession;
+    this.getSourcePath = getSourcePath;
+    this.turnSourcePath = '';
     this.state = 'not-started';
     this.session = null;
     this.messages = [];
@@ -127,7 +129,7 @@ export class ChatController extends EventEmitter {
       if (!this.retainUi(Buffer.byteLength(text))) return;
       const last = this.messages.at(-1);
       if (last?.role === 'agent') last.text += text;
-      else this.messages.push({ role: 'agent', text, timestamp: Date.now() });
+      else this.messages.push({ role: 'agent', text, timestamp: Date.now(), sourcePath: this.turnSourcePath });
     } else if (['tool_call', 'tool_call_update'].includes(update.sessionUpdate) && typeof update.toolCallId === 'string') {
       const previous = this.tools.get(update.toolCallId);
       const data = { ...previous?.data };
@@ -157,6 +159,7 @@ export class ChatController extends EventEmitter {
     const originalDraft = this.draft;
     const originalSelection = this.selection;
     if (!this.retainUi(Buffer.byteLength(prompt))) return;
+    this.turnSourcePath = this.selection?.path ?? this.getSourcePath();
     this.messages.push({ role: 'user', text: prompt, timestamp: Date.now() });
     // Preserve a failure snapshot in the user entry; retain the composer draft
     // until successful settlement and never overwrite a newer draft.
@@ -225,6 +228,7 @@ export class ChatController extends EventEmitter {
     this.session?.removeAllListeners();
     this.session = null;
     this.messages = [];
+    this.turnSourcePath = '';
     this.tools.clear();
     this.draft = '';
     this.selection = null;
@@ -245,6 +249,7 @@ export class ChatController extends EventEmitter {
     this.draft = '';
     this.selection = null;
     this.messages = [];
+    this.turnSourcePath = '';
     this.tools.clear();
     this.removeAllListeners();
     const result = await this.session?.close();

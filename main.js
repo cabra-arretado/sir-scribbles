@@ -787,7 +787,7 @@ ${selection.text}
 // src/chat.js
 var ERROR_TEXT = {
   ABSOLUTE_EXECUTABLE_REQUIRED: "Choose the absolute path to your installed Kiro executable.",
-  EXECUTABLE_NOT_AVAILABLE: "That file is unavailable or not executable. Check the installed Kiro path.",
+  EXECUTABLE_NOT_AVAILABLE: "That file is unavailable or not executable. Change the Kiro path in Settings \u2192 Community plugins \u2192 obsidian-noter, then start a new chat to retry.",
   MACOS_REQUIRED: "This preview supports macOS desktop only.",
   STARTUP_TIMEOUT: "Kiro did not become ready within 15 seconds. Check your CLI login and V3 installation, then start a new chat.",
   INCOMPATIBLE_PROTOCOL: "Kiro returned an unsupported protocol. Check your V3 installation.",
@@ -806,12 +806,14 @@ var ERROR_TEXT = {
 };
 var errorText = (code2) => ERROR_TEXT[code2] ?? `Kiro stopped (${code2 || "UNKNOWN_ERROR"}). The previous task outcome may be uncertain. Start a new chat.`;
 var ChatController = class extends import_node_events2.EventEmitter {
-  constructor(cwd, { launch = launchKiro, validate = validateExecutable, createSession = (child) => new AcpSession(child) } = {}) {
+  constructor(cwd, { launch = launchKiro, validate = validateExecutable, createSession = (child) => new AcpSession(child), getSourcePath = () => "" } = {}) {
     super();
     this.cwd = cwd;
     this.launch = launch;
     this.validate = validate;
     this.createSession = createSession;
+    this.getSourcePath = getSourcePath;
+    this.turnSourcePath = "";
     this.state = "not-started";
     this.session = null;
     this.messages = [];
@@ -933,7 +935,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
       if (!this.retainUi(Buffer.byteLength(text2))) return;
       const last = this.messages.at(-1);
       if (last?.role === "agent") last.text += text2;
-      else this.messages.push({ role: "agent", text: text2, timestamp: Date.now() });
+      else this.messages.push({ role: "agent", text: text2, timestamp: Date.now(), sourcePath: this.turnSourcePath });
     } else if (["tool_call", "tool_call_update"].includes(update.sessionUpdate) && typeof update.toolCallId === "string") {
       const previous = this.tools.get(update.toolCallId);
       const data = { ...previous?.data };
@@ -965,6 +967,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     const originalDraft = this.draft;
     const originalSelection = this.selection;
     if (!this.retainUi(Buffer.byteLength(prompt))) return;
+    this.turnSourcePath = this.selection?.path ?? this.getSourcePath();
     this.messages.push({ role: "user", text: prompt, timestamp: Date.now() });
     this.draft = "";
     this.selection = null;
@@ -1043,6 +1046,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.session?.removeAllListeners();
     this.session = null;
     this.messages = [];
+    this.turnSourcePath = "";
     this.tools.clear();
     this.draft = "";
     this.selection = null;
@@ -1062,6 +1066,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.draft = "";
     this.selection = null;
     this.messages = [];
+    this.turnSourcePath = "";
     this.tools.clear();
     this.removeAllListeners();
     const result = await this.session?.close();
@@ -6085,6 +6090,24 @@ var MarkdownItCallable = callable(MarkdownIt);
 
 // src/markdown.js
 var markdown = new MarkdownItCallable({ html: false, linkify: false, maxNesting: 32 });
+markdown.inline.ruler.before("link", "vault_link", (state, silent) => {
+  const start = state.pos;
+  if (state.src.slice(start, start + 2) !== "[[" || state.src[start - 1] === "!") return false;
+  const end = state.src.indexOf("]]", start + 2);
+  if (end < 0 || end >= state.posMax) return false;
+  const content = state.src.slice(start + 2, end);
+  if (!content || content.includes("\n")) return false;
+  const divider = content.indexOf("|");
+  const target = divider < 0 ? content : content.slice(0, divider);
+  const label = divider < 0 ? content : content.slice(divider + 1);
+  if (!silent) {
+    const token = state.push("vault_link", "", 0);
+    token.content = label;
+    token.meta = { target };
+  }
+  state.pos = end + 2;
+  return true;
+});
 var tags = /* @__PURE__ */ new Set([
   "p",
   "h1",
@@ -6108,10 +6131,29 @@ var tags = /* @__PURE__ */ new Set([
   "th",
   "td"
 ]);
-function renderMarkdown(container, source) {
+function noteLinkTarget(href, encoded = false) {
+  try {
+    const decoded = encoded ? decodeURIComponent(href) : href;
+    if (!decoded || /[\u0000-\u001f\\]/.test(decoded) || decoded.startsWith("/") || /^[a-z][a-z\d+.-]*:/i.test(decoded)) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
   const document = container.ownerDocument;
   const fragment = document.createDocumentFragment();
   const stack = [fragment];
+  const wireNote = (element, target) => {
+    if (!openNote) return;
+    element.classList.add("internal-link");
+    element.setAttribute("href", "#");
+    element.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openNote(target, sourcePath, event.metaKey || event.ctrlKey);
+    });
+  };
   const append = (tokens) => {
     for (const token of tokens) {
       const parent = stack.at(-1);
@@ -6119,7 +6161,13 @@ function renderMarkdown(container, source) {
         append(token.children ?? []);
         continue;
       }
-      if (token.type === "text" || token.type === "softbreak") {
+      if (token.type === "vault_link") {
+        const link2 = document.createElement("a");
+        link2.textContent = token.content;
+        const target = noteLinkTarget(token.meta.target);
+        if (target) wireNote(link2, target);
+        parent.append(link2);
+      } else if (token.type === "text" || token.type === "softbreak") {
         parent.append(document.createTextNode(token.type === "softbreak" ? "\n" : token.content));
       } else if (token.type === "image") {
         parent.append(document.createTextNode(`![${token.content}](${token.attrGet("src") ?? ""})`));
@@ -6146,6 +6194,16 @@ function renderMarkdown(container, source) {
             element.setAttribute("href", href);
             element.setAttribute("target", "_blank");
             element.setAttribute("rel", "noopener noreferrer");
+          } else if (href.startsWith("obsidian://open?")) {
+            try {
+              const url = new URL(href);
+              const target = noteLinkTarget(url.searchParams.get("file") ?? "");
+              if (target && openNote) wireNote(element, { path: target, vault: url.searchParams.get("vault") });
+            } catch {
+            }
+          } else {
+            const target = noteLinkTarget(href, true);
+            if (target) wireNote(element, target);
           }
           const title = token.attrGet("title");
           if (title) element.title = title;
@@ -6174,10 +6232,10 @@ var STATES = {
   terminated: "Terminated"
 };
 var ChatPanel = class {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote }) {
     this.container = container;
     this.model = controller;
-    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText };
+    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote };
     this.document = container.ownerDocument;
     this.rows = /* @__PURE__ */ new Map();
     this.timer = null;
@@ -6241,12 +6299,13 @@ var ChatPanel = class {
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
     this.start = this.button("Start Kiro", async () => {
-      const executable = this.path.value.trim();
+      const saved = this.actions.getPath().trim();
+      const executable = saved || this.path.value.trim();
       const generation = this.model.generation;
       this.startPending = true;
       this.start.disabled = true;
       try {
-        await this.actions.savePath(executable);
+        if (!saved) await this.actions.savePath(executable);
         if (this.disposed || generation !== this.model.generation) return;
         await this.model.start(executable);
       } catch {
@@ -6261,6 +6320,8 @@ var ChatPanel = class {
       this.el("p", "obsidian-noter-caption", "Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
       this.start
     );
+    this.pathHelp = this.el("p", "obsidian-noter-caption", "Executable saved. Change it in Settings \u2192 Community plugins \u2192 obsidian-noter.");
+    this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea, this.el("p", "obsidian-noter-preview-label", "Developer preview \xB7 Kiro V3 compatibility is unverified"));
     this.transcript.append(this.empty);
     this.container.append(this.transcript);
@@ -6330,6 +6391,8 @@ var ChatPanel = class {
     this.send.disabled = model.state !== "ready" || model.resetting || !(model.draft.trim() || model.selection);
     this.start.disabled = model.state !== "not-started" || model.resetting || this.startPending;
     this.path.disabled = model.state !== "not-started" || model.resetting;
+    this.path.hidden = Boolean(this.actions.getPath().trim());
+    this.pathHelp.hidden = !this.path.hidden;
     this.reset.disabled = model.resetting || model.disposed;
     this.attach.disabled = model.resetting || model.disposed;
     this.attachFile.disabled = model.resetting || model.disposed;
@@ -6405,7 +6468,19 @@ var ChatPanel = class {
       }
       if (row.summary) row.summary.textContent = `${typeof message.data.title === "string" ? message.data.title : "Tool"} \xB7 ${typeof message.data.status === "string" ? message.data.status : "pending"}`;
       if (message.text !== row.rendered) {
-        if (message.role === "agent") renderMarkdown(row.body, message.text);
+        if (message.role === "agent") renderMarkdown(row.body, message.text, {
+          sourcePath: message.sourcePath,
+          openNote: this.actions.openNote ? async (...args) => {
+            try {
+              if (!this.disposed) await this.actions.openNote(...args);
+            } catch {
+              if (!this.disposed) {
+                this.model.error = "Could not open that note in this vault.";
+                this.model.changed();
+              }
+            }
+          } : void 0
+        });
         else row.body.textContent = message.text;
       }
       row.rendered = message.text;
@@ -6517,7 +6592,9 @@ var NoterView = class extends import_obsidian.ItemView {
     }
     if (this.plugin.cleanupPending) await this.plugin.cleanupPending;
     if (this.closed || this.plugin.unloaded) return;
-    this.controller = this.plugin.controller ?? new ChatController(adapter.getBasePath());
+    this.controller = this.plugin.controller ?? new ChatController(adapter.getBasePath(), {
+      getSourcePath: () => this.plugin.lastEditor?.file?.path ?? ""
+    });
     if (this.controller.disposed) this.controller.recoverCleanup();
     this.plugin.controller = this.controller;
     this.panel = new ChatPanel(this.contentEl, this.controller, {
@@ -6529,7 +6606,14 @@ var NoterView = class extends import_obsidian.ItemView {
       attachSelection: () => captureSelection(this.plugin.lastEditor, (view) => view instanceof import_obsidian.MarkdownView && this.app.workspace.getLeavesOfType("markdown").some((leaf) => leaf.view === view)),
       attachFile: () => captureFile(this.plugin.lastEditor, (view) => view instanceof import_obsidian.MarkdownView && this.app.workspace.getLeavesOfType("markdown").some((leaf) => leaf.view === view)),
       confirmReset: () => new Promise((resolve) => new ResetModal(this.app, resolve).open()),
-      copyText: (text2) => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text2)
+      copyText: (text2) => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text2),
+      openNote: async (target, sourcePath, newLeaf) => {
+        if (typeof target === "object") {
+          if (target.vault && target.vault !== this.app.vault.getName()) throw new Error("Different vault");
+          target = target.path;
+        }
+        await this.app.workspace.openLinkText(target, sourcePath, newLeaf);
+      }
     });
   }
   async onClose() {

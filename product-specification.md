@@ -97,7 +97,7 @@ The panel explains once: “Kiro may run actions already allowed by its own conf
 | SEC-01 | CLI-owned authentication | No API-key fields, token handlers, credential files, or browser-authentication ownership in the plugin. |
 | SEC-02 | Agent-owned execution | Advertise client filesystem and terminal capabilities as unavailable. Unsupported filesystem/terminal requests return a protocol error and execute nothing. |
 | SEC-03 | Safe launch | Use an absolute executable and fixed argument array with shell execution disabled. No login-shell sourcing, command-string interpolation, installer, or arbitrary argument setting. |
-| SEC-04 | Inert rendering | Render bot Markdown through a pinned parser with raw HTML disabled and image tokens rendered as text and a fixed DOM allowlist. Other content uses text nodes. No raw HTML, ANSI emulation, external images, automatically opened URLs, application links, or live note embeds. |
+| SEC-04 | Inert rendering | Render bot Markdown through a pinned parser with raw HTML disabled and image tokens rendered as text and a fixed DOM allowlist. Other content uses text nodes. No raw HTML, ANSI emulation, external images, automatically opened URLs, arbitrary application actions or live note embeds. Note/wiki links and current-vault obsidian://open links navigate through the Obsidian API only on click. |
 | SEC-05 | No client archive | Inspect plugin writes and confirm that only the executable setting is persisted. No conversation autosave, export, disk logs, session index, or provider cache. |
 | SEC-06 | Bounded resources | Enforce the ceilings below before unbounded parsing/rendering. Overflow cancels approvals, terminates the connection/process, and displays a bounded error without silently resuming. |
 | SEC-07 | Process lifecycle | Launch in an owned process group; stop that group on termination, await exit and escalate after a bounded grace period. Do not report successful cleanup until observed. |
@@ -153,7 +153,7 @@ For an invalid path, explain how to select the installed executable. For authent
 
 ## Deliberate exclusions
 
-The MVP has no automatic note mentions, note picker, arbitrary binary/image/audio attachments, wikilink expansion, executable code blocks, chat buttons in notes, transcript persistence/export, session resume/fork, multiple agents, model/mode selectors, custom tools, terminal emulation, notifications, background automation, installers, or provider settings. Users configure agents and tools through Kiro separately.
+The MVP has no automatic note mentions, note picker, arbitrary binary/image/audio attachments, live note transclusions, executable code blocks, chat buttons in notes, transcript persistence/export, session resume/fork, multiple agents, model/mode selectors, custom tools, terminal emulation, notifications, background automation, installers, or provider settings. Users configure agents and tools through Kiro separately.
 
 These exclusions remove features associated with the earlier audit findings. They do not remove Kiro's existing tool access, prompt-injection exposure, provider retention, or agent-owned history.
 

@@ -180,6 +180,7 @@ test('New chat invalidates a Start awaiting settings save', async t => {
   const { model, panel } = create(t);
   let finishSave;
   let starts = 0;
+  panel.actions.getPath = () => '';
   panel.actions.savePath = () => new Promise(resolve => { finishSave = resolve; });
   model.start = () => { starts++; };
   panel.start.click();
@@ -188,4 +189,47 @@ test('New chat invalidates a Start awaiting settings save', async t => {
   await tick();
   assert.equal(starts, 0);
   assert.equal(panel.start.disabled, false);
+});
+
+test('saved executable starts without reconfirmation and settings changes take effect', async t => {
+  const { model, panel } = create(t);
+  let saved = '/fixture/kiro';
+  const starts = [];
+  panel.actions.getPath = () => saved;
+  panel.actions.savePath = () => assert.fail('saved path should not be saved again');
+  model.start = async path => { starts.push(path); };
+  panel.render();
+  assert.equal(panel.path.hidden, true);
+  panel.path.value = '/ignored/stale-input';
+  panel.start.click();
+  await tick();
+  saved = '/fixture/new-kiro';
+  panel.render();
+  panel.start.click();
+  await tick();
+  assert.deepEqual(starts, ['/fixture/kiro', '/fixture/new-kiro']);
+});
+
+test('wiki and Markdown note links open only on click with the reply source path', t => {
+  const { model, panel, root, dom } = create(t);
+  const opened = [];
+  panel.actions.openNote = (...args) => { opened.push(args); };
+  model.turnSourcePath = 'Projects/source.md';
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text:
+    '[[Notes/Example#Section|Example]] [Relative](../Notes/Other%20note.md#^block) [URI](obsidian://open?file=Notes%2FExample&vault=Studio) `[[Code]]` ![[Embed]] [Unsafe](obsidian://advanced-uri?vault=x) [Script](javascript:alert(1))' } });
+  panel.render();
+  assert.equal(opened.length, 0);
+  const links = root.querySelectorAll('a.internal-link');
+  assert.equal(links.length, 3);
+  links[0].click();
+  links[1].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+  links[2].click();
+  assert.deepEqual(opened, [
+    ['Notes/Example#Section', 'Projects/source.md', false],
+    ['../Notes/Other note.md#^block', 'Projects/source.md', true],
+    [{ path: 'Notes/Example', vault: 'Studio' }, 'Projects/source.md', false],
+  ]);
+  assert.equal(root.querySelector('code').textContent, '[[Code]]');
+  assert.ok(root.textContent.includes('![[Embed]]'));
+  assert.equal(root.querySelectorAll('a[href^="obsidian:"]').length, 0);
 });

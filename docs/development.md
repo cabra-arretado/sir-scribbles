@@ -12,7 +12,10 @@ pending. The product specification includes the requested composer, full-note co
 Runtime modules use Node/Electron built-ins and Obsidian's API, plus a bundled, pinned markdown-it parser, without a network
 client, logging framework or content archive. Bot Markdown is parsed into tokens
 and rendered with a fixed DOM tag/attribute allowlist. Raw HTML parsing and image loading are
-disabled; only explicit HTTP(S) and mail links are navigable. Tool and note context
+disabled. HTTP(S) and mail links are navigable; note paths, wiki links, and current-vault
+`obsidian://open` links invoke Obsidian's `openLinkText` only on click. Other application
+protocols and cross-vault links cannot dispatch actions. Each reply keeps its turn's
+source note path for relative navigation. Tool and note context
 remain text nodes. No embeds, resource loads, or Markdown plugins are used. esbuild and jsdom are pinned
 development dependencies, excluded from the plugin runtime. `npm run build`
 produces the three plugin files. Build determinism was checked locally by

@@ -93,3 +93,21 @@ test('unloading during a pending view open prevents late controller creation', a
   assert.equal(plugin.controller, null);
   assert.equal(launches(), 0);
 });
+
+test('note navigation uses Obsidian API and refuses links to another vault', async t => {
+  const { plugin, app, leaf, launches } = create(t);
+  const opened = [];
+  app.vault.getName = () => 'Studio';
+  app.workspace.openLinkText = async (...args) => { opened.push(args); };
+  await plugin.onload();
+  await leaf.setViewState();
+  const open = leaf.view.panel.actions.openNote;
+  await open('Notes/Example#Heading', 'Projects/source.md', true);
+  await open({ path: 'Notes/Other', vault: 'Studio' }, '', false);
+  await assert.rejects(open({ path: 'Private', vault: 'Different' }, '', false));
+  assert.deepEqual(opened, [
+    ['Notes/Example#Heading', 'Projects/source.md', true],
+    ['Notes/Other', '', false],
+  ]);
+  assert.equal(launches(), 0);
+});

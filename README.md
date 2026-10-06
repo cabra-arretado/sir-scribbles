@@ -49,7 +49,10 @@ before installing `obsidian-noter`. Restart Obsidian and enable **obsidian-noter
 
 ## Use the sidebar
 
-1. Enter the absolute path to your already installed Kiro executable. Settings
+1. On first setup, enter the absolute path to your already installed Kiro executable.
+   The path is saved and reused; later chats show **Start Kiro** without asking
+   for the path again. Change it under **Settings → Community plugins → obsidian-noter**
+   if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
 2. Review the displayed vault directory and click **Start Kiro**. Opening the
    plugin/sidebar or typing a prompt never starts a process.
@@ -64,6 +67,10 @@ before installing `obsidian-noter`. Restart Obsidian and enable **obsidian-noter
    Markdown; prompts, context previews, and tool activity stay
    plain text. Messages have timestamps and Copy controls that preserve the source.
    Raw HTML and images stay inert; web links open only when clicked.
+   Note links (`[[Note|Label]]`, Markdown note paths, and `obsidian://open` links
+   to this vault) open through Obsidian when clicked. Headings and block references
+   are supported. Cmd/Ctrl+click opens a new tab. Relative paths use the note
+   attached or active when the prompt was sent, even if you switch notes later.
 5. Review the complete JSON action details before choosing an offered one-time
    Allow or Deny option. Missing/unsupported consent details cancel the request.
    Existing Kiro policy may allow actions without asking the sidebar.

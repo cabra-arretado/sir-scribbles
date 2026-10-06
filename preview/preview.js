@@ -22,12 +22,13 @@ const selection = { path: 'Projects/Launch notes.md', from: 7, to: 7, text: 'Giv
 const panel = new ChatPanel(document.getElementById('panel'), model, {
   getPath: () => '/Users/you/.local/bin/kiro-cli', savePath: async () => {}, attachSelection: () => selection,
   attachFile: () => ({ kind: 'file', path: selection.path, text: 'Start with the smallest useful thing\n\n' + document.getElementById('sample').textContent }),
+  openNote: target => { model.error = `Preview note link: ${typeof target === 'string' ? target : target.path}. No vault is open in this fixture.`; model.changed(); },
   confirmReset: async () => window.confirm('Discard this preview chat?'), copyText: text => navigator.clipboard.writeText(text),
 });
 document.getElementById('initial').onclick = () => model.newChat();
 document.getElementById('conversation').onclick = () => {
   model.newChat(); model.start();
-  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
+  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
   model.selection = selection; model.draft = 'What would this look like in practice?'; model.changed();
 };
 document.getElementById('approval').onclick = () => {

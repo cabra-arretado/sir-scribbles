@@ -36,7 +36,9 @@ class NoterView extends ItemView {
     }
     if (this.plugin.cleanupPending) await this.plugin.cleanupPending;
     if (this.closed || this.plugin.unloaded) return;
-    this.controller = this.plugin.controller ?? new ChatController(adapter.getBasePath());
+    this.controller = this.plugin.controller ?? new ChatController(adapter.getBasePath(), {
+      getSourcePath: () => this.plugin.lastEditor?.file?.path ?? '',
+    });
     if (this.controller.disposed) this.controller.recoverCleanup();
     this.plugin.controller = this.controller;
     this.panel = new ChatPanel(this.contentEl, this.controller, {
@@ -48,6 +50,13 @@ class NoterView extends ItemView {
         view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view)),
       confirmReset: () => new Promise(resolve => new ResetModal(this.app, resolve).open()),
       copyText: text => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text),
+      openNote: async (target, sourcePath, newLeaf) => {
+        if (typeof target === 'object') {
+          if (target.vault && target.vault !== this.app.vault.getName()) throw new Error('Different vault');
+          target = target.path;
+        }
+        await this.app.workspace.openLinkText(target, sourcePath, newLeaf);
+      },
     });
   }
   async onClose() {

@@ -8,10 +8,10 @@ const STATES = {
 // DOM rendering only. Bot Markdown uses a restricted token renderer; note and
 // tool content stays plain text. No raw HTML or automatic resource loading.
 export class ChatPanel {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote }) {
     this.container = container;
     this.model = controller;
-    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText };
+    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote };
     this.document = container.ownerDocument;
     this.rows = new Map();
     this.timer = null;
@@ -74,13 +74,14 @@ export class ChatPanel {
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
     this.start = this.button('Start Kiro', async () => {
-      const executable = this.path.value.trim();
+      const saved = this.actions.getPath().trim();
+      const executable = saved || this.path.value.trim();
       const generation = this.model.generation;
       this.startPending = true;
       this.start.disabled = true;
       try {
         // Save only this setting, not any conversation state.
-        await this.actions.savePath(executable);
+        if (!saved) await this.actions.savePath(executable);
         if (this.disposed || generation !== this.model.generation) return;
         await this.model.start(executable);
       } catch {
@@ -93,6 +94,8 @@ export class ChatPanel {
     this.startArea.append(this.path,
       this.el('p', 'obsidian-noter-caption', 'Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       this.start);
+    this.pathHelp = this.el('p', 'obsidian-noter-caption', 'Executable saved. Change it in Settings → Community plugins → obsidian-noter.');
+    this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea, this.el('p', 'obsidian-noter-preview-label', 'Developer preview · Kiro V3 compatibility is unverified'));
     this.transcript.append(this.empty);
     this.container.append(this.transcript);
@@ -156,6 +159,8 @@ export class ChatPanel {
     this.send.disabled = model.state !== 'ready' || model.resetting || !(model.draft.trim() || model.selection);
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
+    this.path.hidden = Boolean(this.actions.getPath().trim());
+    this.pathHelp.hidden = !this.path.hidden;
     this.reset.disabled = model.resetting || model.disposed;
     this.attach.disabled = model.resetting || model.disposed;
     this.attachFile.disabled = model.resetting || model.disposed;
@@ -228,7 +233,13 @@ export class ChatPanel {
       // Reparse only a changed bot reply so incomplete streamed markup becomes
       // formatted as it arrives. Keep the message row, timestamp and Copy button.
       if (message.text !== row.rendered) {
-        if (message.role === 'agent') renderMarkdown(row.body, message.text);
+        if (message.role === 'agent') renderMarkdown(row.body, message.text, {
+          sourcePath: message.sourcePath,
+          openNote: this.actions.openNote ? async (...args) => {
+            try { if (!this.disposed) await this.actions.openNote(...args); }
+            catch { if (!this.disposed) { this.model.error = 'Could not open that note in this vault.'; this.model.changed(); } }
+          } : undefined,
+        });
         else row.body.textContent = message.text;
       }
       row.rendered = message.text;
