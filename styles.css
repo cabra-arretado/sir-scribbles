@@ -1,79 +1,79 @@
-.obsidian-noter {
-  --obsidian-noter-accent: var(--interactive-accent);
+.sir-scribbles {
+  --sir-scribbles-accent: var(--interactive-accent);
   display: flex; flex-direction: column; gap: 0; height: 100%; padding: 0 !important;
   color: var(--text-normal); background: var(--background-primary); font-size: var(--font-ui-small, 13px);
 }
-.obsidian-noter [hidden] { display: none !important; }
-.obsidian-noter button { cursor: pointer; font-size: 12px; }
-.obsidian-noter button:disabled { cursor: default; opacity: .45; }
-.obsidian-noter button:focus-visible, .obsidian-noter input:focus-visible, .obsidian-noter textarea:focus-visible, .obsidian-noter summary:focus-visible { outline: 2px solid var(--obsidian-noter-accent); outline-offset: 3px; }
-.obsidian-noter-header { position: relative; padding: 20px 20px 14px; border-bottom: 1px solid var(--background-modifier-border); }
-.obsidian-noter-title-row { display: flex; align-items: center; gap: 9px; }
-.obsidian-noter-title-row h2 { font-size: 16px; font-weight: 650; letter-spacing: -.3px; margin: 0; }
-.obsidian-noter-mark { border: 1px solid var(--background-modifier-border); background: var(--background-secondary); color: var(--obsidian-noter-accent); border-radius: 8px; height: 26px; width: 26px; display: grid; place-items: center; font-weight: 700; }
-.obsidian-noter-status { margin-left: auto; font-size: 11px; color: var(--text-muted); border-radius: 20px; padding: 4px 8px; background: var(--background-secondary); white-space: nowrap; }
-.obsidian-noter-status[data-state="ready"] { color: var(--text-success, var(--obsidian-noter-accent)); }
-.obsidian-noter-status[data-state="working"], .obsidian-noter-status[data-state="waiting-for-approval"] { color: var(--text-accent); }
-.obsidian-noter-directory { font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; margin: 12px 0 6px; }
-.obsidian-noter-identity { margin: 0; color: var(--text-faint); font-size: 11px; padding-right: 80px; }
-.obsidian-noter-reset { position: absolute; right: 20px; bottom: 12px; box-shadow: none !important; background: transparent !important; color: var(--text-muted); padding: 3px 0; height: auto; }
-.obsidian-noter-error { margin: 12px 16px 0; padding: 10px 12px; background: var(--background-secondary); border-left: 2px solid var(--text-warning, var(--text-accent)); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.obsidian-noter-transcript { min-height: 80px; flex: 1; overflow-y: auto; padding: 20px 18px; overscroll-behavior: contain; }
-.obsidian-noter-empty { padding: 20px 2px; }
-.obsidian-noter-empty-mark { color: var(--text-accent); font-size: 32px; line-height: 1; margin-bottom: 18px; }
-.obsidian-noter-empty h3 { font-size: 23px; line-height: 1.3; letter-spacing: -.7px; font-weight: 550; margin: 0 0 12px; }
-.obsidian-noter-empty > p { color: var(--text-muted); line-height: 1.7; margin: 0; max-width: 36ch; }
-.obsidian-noter-start-area { border-top: 1px solid var(--background-modifier-border); margin-top: 30px; padding-top: 20px; }
-.obsidian-noter-start-area h4 { font-size: 12px; font-weight: 600; margin: 0 0 12px; }
-.obsidian-noter-path { width: 100%; font-family: var(--font-monospace); font-size: 11px !important; }
-.obsidian-noter-caption { color: var(--text-muted); font-size: 11px; line-height: 1.6; }
-.obsidian-noter-start-area .obsidian-noter-primary { width: 100%; margin-top: 6px; }
-.obsidian-noter-preview-label { font-size: 10px; color: var(--text-faint) !important; margin-top: 18px !important; }
-.obsidian-noter-message { margin-bottom: 22px; }
-.obsidian-noter-message-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
-.obsidian-noter-copy { font-size: 10px !important; color: var(--text-faint); background: transparent !important; box-shadow: none !important; padding: 2px 5px; height: auto; }
-.obsidian-noter-plain-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; font-size: 13px; margin: 0; user-select: text; }
-.obsidian-noter-markdown { overflow-wrap: anywhere; line-height: 1.75; font-size: 13px; user-select: text; }
-.obsidian-noter-markdown > :first-child { margin-top: 0; }
-.obsidian-noter-markdown > :last-child { margin-bottom: 0; }
-.obsidian-noter-markdown p { margin: 0 0 12px; }
-.obsidian-noter-markdown :is(h1,h2,h3,h4,h5,h6) { line-height: 1.35; margin: 18px 0 10px; font-weight: 650; }
-.obsidian-noter-markdown h1 { font-size: 21px; }
-.obsidian-noter-markdown h2 { font-size: 18px; }
-.obsidian-noter-markdown :is(h3,h4,h5,h6) { font-size: 15px; }
-.obsidian-noter-markdown :is(ul,ol) { padding-left: 22px; margin: 10px 0; }
-.obsidian-noter-markdown blockquote { margin: 12px 0; border-left: 3px solid var(--background-modifier-border); padding-left: 12px; color: var(--text-muted); }
-.obsidian-noter-markdown code { font-family: var(--font-monospace); font-size: 12px; background: var(--background-secondary); padding: 2px 4px; border-radius: 4px; }
-.obsidian-noter-markdown pre { overflow-x: auto; background: var(--background-secondary); padding: 12px; border-radius: 8px; white-space: pre; }
-.obsidian-noter-markdown pre code { padding: 0; background: transparent; }
-.obsidian-noter-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 12px 0; }
-.obsidian-noter-markdown :is(th,td) { border: 1px solid var(--background-modifier-border); padding: 6px 9px; }
-.obsidian-noter-markdown a { color: var(--text-accent); }
-.obsidian-noter-user .obsidian-noter-plain-text { background: var(--background-secondary); padding: 12px 14px; border-radius: 10px; }
-.obsidian-noter-tool-details { border-left: 2px solid var(--background-modifier-border); padding-left: 12px; }
-.obsidian-noter-tool-details summary { font-size: 12px; color: var(--text-muted); cursor: pointer; }
-.obsidian-noter-tool-details pre { font-family: var(--font-monospace); font-size: 11px; margin-top: 10px; }
-.obsidian-noter-footer { flex-shrink: 0; padding: 12px 16px 14px; border-top: 1px solid var(--background-modifier-border); }
-.obsidian-noter-composer { border: 1px solid var(--background-modifier-border); border-radius: 12px; background: var(--background-primary); overflow: hidden; }
-.obsidian-noter-composer:focus-within { border-color: var(--obsidian-noter-accent); }
-.obsidian-noter-prompt { box-sizing: border-box; resize: vertical; display: block; width: 100%; min-height: 78px; max-height: 220px; border: 0 !important; box-shadow: none !important; background: transparent !important; padding: 12px 14px !important; font-family: var(--font-text); font-size: 13px; line-height: 1.6; }
-.obsidian-noter-composer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--background-modifier-border); }
-.obsidian-noter-composer-toolbar .obsidian-noter-primary { margin-left: auto; flex-shrink: 0; }
-.obsidian-noter-timestamp { margin-left: auto; margin-right: 8px; font-size: 10px; font-weight: 400; color: var(--text-faint); }
-.obsidian-noter-attach { background: transparent !important; box-shadow: none !important; color: var(--text-muted); font-size: 11px !important; }
-.obsidian-noter-primary { border-radius: 7px; }
-.obsidian-noter-session-controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; min-height: 20px; }
-.obsidian-noter-session-controls .obsidian-noter-caption { margin-left: auto; font-size: 10px; }
-.obsidian-noter-boundary { font-size: 10px; line-height: 1.6; color: var(--text-faint); margin: 10px 0 0; }
-.obsidian-noter-selection { border: 1px solid var(--background-modifier-border); background: var(--background-secondary); border-radius: 8px; margin-bottom: 10px; padding: 10px; }
-.obsidian-noter-selection-header { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; overflow-wrap: anywhere; }
-.obsidian-noter-selection summary { font-size: 10px; color: var(--text-muted); margin-top: 8px; cursor: pointer; }
-.obsidian-noter-selection-text { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; user-select: text; }
-.obsidian-noter-permission-area { flex-shrink: 0; max-height: 45%; overflow-y: auto; margin: 0 16px 10px; padding: 14px; border: 1px solid var(--text-accent); border-radius: 10px; background: var(--background-secondary); }
-.obsidian-noter-eyebrow { font-size: 9px; letter-spacing: 1.2px; font-weight: 700; color: var(--text-accent); margin: 0 0 10px; }
-.obsidian-noter-permission-area h3 { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
-.obsidian-noter-permission-details summary { font-size: 11px; cursor: pointer; }
-.obsidian-noter-permission-input { font-family: var(--font-monospace); font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; user-select: text; }
-.obsidian-noter-decisions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.obsidian-noter-danger { color: var(--text-error) !important; }
-@media (max-width: 340px) { .obsidian-noter-header { padding: 14px 12px; } .obsidian-noter-status { font-size: 10px; padding: 3px 6px; } .obsidian-noter-title-row h2 { font-size: 14px; } .obsidian-noter-reset { right: 12px; } }
+.sir-scribbles [hidden] { display: none !important; }
+.sir-scribbles button { cursor: pointer; font-size: 12px; }
+.sir-scribbles button:disabled { cursor: default; opacity: .45; }
+.sir-scribbles button:focus-visible, .sir-scribbles input:focus-visible, .sir-scribbles textarea:focus-visible, .sir-scribbles summary:focus-visible { outline: 2px solid var(--sir-scribbles-accent); outline-offset: 3px; }
+.sir-scribbles-header { position: relative; padding: 20px 20px 14px; border-bottom: 1px solid var(--background-modifier-border); }
+.sir-scribbles-title-row { display: flex; align-items: center; gap: 9px; }
+.sir-scribbles-title-row h2 { font-size: 16px; font-weight: 650; letter-spacing: -.3px; margin: 0; }
+.sir-scribbles-mark { border: 1px solid var(--background-modifier-border); background: var(--background-secondary); color: var(--sir-scribbles-accent); border-radius: 8px; height: 26px; width: 26px; display: grid; place-items: center; font-weight: 700; }
+.sir-scribbles-status { margin-left: auto; font-size: 11px; color: var(--text-muted); border-radius: 20px; padding: 4px 8px; background: var(--background-secondary); white-space: nowrap; }
+.sir-scribbles-status[data-state="ready"] { color: var(--text-success, var(--sir-scribbles-accent)); }
+.sir-scribbles-status[data-state="working"], .sir-scribbles-status[data-state="waiting-for-approval"] { color: var(--text-accent); }
+.sir-scribbles-directory { font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; margin: 12px 0 6px; }
+.sir-scribbles-identity { margin: 0; color: var(--text-faint); font-size: 11px; padding-right: 80px; }
+.sir-scribbles-reset { position: absolute; right: 20px; bottom: 12px; box-shadow: none !important; background: transparent !important; color: var(--text-muted); padding: 3px 0; height: auto; }
+.sir-scribbles-error { margin: 12px 16px 0; padding: 10px 12px; background: var(--background-secondary); border-left: 2px solid var(--text-warning, var(--text-accent)); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sir-scribbles-transcript { min-height: 80px; flex: 1; overflow-y: auto; padding: 20px 18px; overscroll-behavior: contain; }
+.sir-scribbles-empty { padding: 20px 2px; }
+.sir-scribbles-empty-mark { color: var(--text-accent); font-size: 32px; line-height: 1; margin-bottom: 18px; }
+.sir-scribbles-empty h3 { font-size: 23px; line-height: 1.3; letter-spacing: -.7px; font-weight: 550; margin: 0 0 12px; }
+.sir-scribbles-empty > p { color: var(--text-muted); line-height: 1.7; margin: 0; max-width: 36ch; }
+.sir-scribbles-start-area { border-top: 1px solid var(--background-modifier-border); margin-top: 30px; padding-top: 20px; }
+.sir-scribbles-start-area h4 { font-size: 12px; font-weight: 600; margin: 0 0 12px; }
+.sir-scribbles-path { width: 100%; font-family: var(--font-monospace); font-size: 11px !important; }
+.sir-scribbles-caption { color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+.sir-scribbles-start-area .sir-scribbles-primary { width: 100%; margin-top: 6px; }
+.sir-scribbles-preview-label { font-size: 10px; color: var(--text-faint) !important; margin-top: 18px !important; }
+.sir-scribbles-message { margin-bottom: 22px; }
+.sir-scribbles-message-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
+.sir-scribbles-copy { font-size: 10px !important; color: var(--text-faint); background: transparent !important; box-shadow: none !important; padding: 2px 5px; height: auto; }
+.sir-scribbles-plain-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; font-size: 13px; margin: 0; user-select: text; }
+.sir-scribbles-markdown { overflow-wrap: anywhere; line-height: 1.75; font-size: 13px; user-select: text; }
+.sir-scribbles-markdown > :first-child { margin-top: 0; }
+.sir-scribbles-markdown > :last-child { margin-bottom: 0; }
+.sir-scribbles-markdown p { margin: 0 0 12px; }
+.sir-scribbles-markdown :is(h1,h2,h3,h4,h5,h6) { line-height: 1.35; margin: 18px 0 10px; font-weight: 650; }
+.sir-scribbles-markdown h1 { font-size: 21px; }
+.sir-scribbles-markdown h2 { font-size: 18px; }
+.sir-scribbles-markdown :is(h3,h4,h5,h6) { font-size: 15px; }
+.sir-scribbles-markdown :is(ul,ol) { padding-left: 22px; margin: 10px 0; }
+.sir-scribbles-markdown blockquote { margin: 12px 0; border-left: 3px solid var(--background-modifier-border); padding-left: 12px; color: var(--text-muted); }
+.sir-scribbles-markdown code { font-family: var(--font-monospace); font-size: 12px; background: var(--background-secondary); padding: 2px 4px; border-radius: 4px; }
+.sir-scribbles-markdown pre { overflow-x: auto; background: var(--background-secondary); padding: 12px; border-radius: 8px; white-space: pre; }
+.sir-scribbles-markdown pre code { padding: 0; background: transparent; }
+.sir-scribbles-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 12px 0; }
+.sir-scribbles-markdown :is(th,td) { border: 1px solid var(--background-modifier-border); padding: 6px 9px; }
+.sir-scribbles-markdown a { color: var(--text-accent); }
+.sir-scribbles-user .sir-scribbles-plain-text { background: var(--background-secondary); padding: 12px 14px; border-radius: 10px; }
+.sir-scribbles-tool-details { border-left: 2px solid var(--background-modifier-border); padding-left: 12px; }
+.sir-scribbles-tool-details summary { font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.sir-scribbles-tool-details pre { font-family: var(--font-monospace); font-size: 11px; margin-top: 10px; }
+.sir-scribbles-footer { flex-shrink: 0; padding: 12px 16px 14px; border-top: 1px solid var(--background-modifier-border); }
+.sir-scribbles-composer { border: 1px solid var(--background-modifier-border); border-radius: 12px; background: var(--background-primary); overflow: hidden; }
+.sir-scribbles-composer:focus-within { border-color: var(--sir-scribbles-accent); }
+.sir-scribbles-prompt { box-sizing: border-box; resize: vertical; display: block; width: 100%; min-height: 78px; max-height: 220px; border: 0 !important; box-shadow: none !important; background: transparent !important; padding: 12px 14px !important; font-family: var(--font-text); font-size: 13px; line-height: 1.6; }
+.sir-scribbles-composer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--background-modifier-border); }
+.sir-scribbles-composer-toolbar .sir-scribbles-primary { margin-left: auto; flex-shrink: 0; }
+.sir-scribbles-timestamp { margin-left: auto; margin-right: 8px; font-size: 10px; font-weight: 400; color: var(--text-faint); }
+.sir-scribbles-attach { background: transparent !important; box-shadow: none !important; color: var(--text-muted); font-size: 11px !important; }
+.sir-scribbles-primary { border-radius: 7px; }
+.sir-scribbles-session-controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; min-height: 20px; }
+.sir-scribbles-session-controls .sir-scribbles-caption { margin-left: auto; font-size: 10px; }
+.sir-scribbles-boundary { font-size: 10px; line-height: 1.6; color: var(--text-faint); margin: 10px 0 0; }
+.sir-scribbles-selection { border: 1px solid var(--background-modifier-border); background: var(--background-secondary); border-radius: 8px; margin-bottom: 10px; padding: 10px; }
+.sir-scribbles-selection-header { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; overflow-wrap: anywhere; }
+.sir-scribbles-selection summary { font-size: 10px; color: var(--text-muted); margin-top: 8px; cursor: pointer; }
+.sir-scribbles-selection-text { max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; user-select: text; }
+.sir-scribbles-permission-area { flex-shrink: 0; max-height: 45%; overflow-y: auto; margin: 0 16px 10px; padding: 14px; border: 1px solid var(--text-accent); border-radius: 10px; background: var(--background-secondary); }
+.sir-scribbles-eyebrow { font-size: 9px; letter-spacing: 1.2px; font-weight: 700; color: var(--text-accent); margin: 0 0 10px; }
+.sir-scribbles-permission-area h3 { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+.sir-scribbles-permission-details summary { font-size: 11px; cursor: pointer; }
+.sir-scribbles-permission-input { font-family: var(--font-monospace); font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; user-select: text; }
+.sir-scribbles-decisions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.sir-scribbles-danger { color: var(--text-error) !important; }
+@media (max-width: 340px) { .sir-scribbles-header { padding: 14px 12px; } .sir-scribbles-status { font-size: 10px; padding: 3px 6px; } .sir-scribbles-title-row h2 { font-size: 14px; } .sir-scribbles-reset { right: 12px; } }

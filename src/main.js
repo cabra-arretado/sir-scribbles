@@ -4,7 +4,7 @@ import { ChatPanel } from './panel.js';
 import { captureSelection, captureFile } from './draft.js';
 import { validateExecutable } from './process.js';
 
-const VIEW_TYPE = 'obsidian-noter';
+const VIEW_TYPE = 'sir-scribbles';
 
 class ResetModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
@@ -18,10 +18,10 @@ class ResetModal extends Modal {
   onClose() { this.resolve(this.accepted); this.contentEl.empty(); }
 }
 
-class NoterView extends ItemView {
+class ScribblesView extends ItemView {
   constructor(leaf, plugin) { super(leaf); this.plugin = plugin; }
   getViewType() { return VIEW_TYPE; }
-  getDisplayText() { return 'obsidian-noter'; }
+  getDisplayText() { return 'Sir Scribbles'; }
   getIcon() { return 'messages-square'; }
   async onOpen() {
     if (this.plugin.activeView && this.plugin.activeView !== this) {
@@ -31,7 +31,7 @@ class NoterView extends ItemView {
     this.plugin.activeView = this;
     const adapter = this.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter)) {
-      this.contentEl.textContent = 'obsidian-noter requires a local desktop vault.';
+      this.contentEl.textContent = 'Sir Scribbles requires a local desktop vault.';
       return;
     }
     if (this.plugin.cleanupPending) await this.plugin.cleanupPending;
@@ -72,16 +72,16 @@ class NoterView extends ItemView {
     this.plugin.cleanupPending = controller?.dispose() ?? Promise.resolve(true);
     const clean = await this.plugin.cleanupPending;
     if (clean) this.plugin.controller = null;
-    else new Notice('Kiro cleanup could not be confirmed. Reopen obsidian-noter and force stop before starting another process.', 0);
+    else new Notice('Kiro cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.', 0);
     this.plugin.cleanupPending = null;
   }
 }
 
-class NoterSettings extends PluginSettingTab {
+class ScribblesSettings extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
   display() {
     this.containerEl.empty();
-    this.containerEl.createEl('h2', { text: 'obsidian-noter' });
+    this.containerEl.createEl('h2', { text: 'Sir Scribbles' });
     this.containerEl.createEl('p', { text: 'macOS developer preview. Install and authenticate Kiro V3 in your terminal. Selecting a path does not run it.' });
     let path = this.plugin.executablePath;
     const status = this.containerEl.createEl('p', { attr: { role: 'status' } });
@@ -94,7 +94,7 @@ class NoterSettings extends PluginSettingTab {
   }
 }
 
-export default class ObsidianNoterPlugin extends Plugin {
+export default class SirScribblesPlugin extends Plugin {
   async onload() {
     this.unloaded = false;
     this.shutdownPending = null;
@@ -104,10 +104,10 @@ export default class ObsidianNoterPlugin extends Plugin {
     this.activeView = null;
     this.controller = null;
     this.cleanupPending = null;
-    this.registerView(VIEW_TYPE, leaf => new NoterView(leaf, this));
-    this.addRibbonIcon('messages-square', 'Open obsidian-noter', () => { void this.openChat(); });
-    this.addCommand({ id: 'open-obsidian-noter', name: 'Open obsidian-noter', callback: () => { void this.openChat(); } });
-    this.addSettingTab(new NoterSettings(this.app, this));
+    this.registerView(VIEW_TYPE, leaf => new ScribblesView(leaf, this));
+    this.addRibbonIcon('messages-square', 'Open Sir Scribbles', () => { void this.openChat(); });
+    this.addCommand({ id: 'open-sir-scribbles', name: 'Open Sir Scribbles', callback: () => { void this.openChat(); } });
+    this.addSettingTab(new ScribblesSettings(this.app, this));
     this.registerEvent(this.app.workspace.on('quit', tasks => {
       // Obsidian waits for Tasks during a normal quit. Plugin onunload alone
       // cannot keep the app alive while asynchronous process cleanup finishes.

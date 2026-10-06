@@ -1,4 +1,4 @@
-# obsidian-noter
+# Sir Scribbles
 
 A small ACP (Agent Client Protocol) chat sidebar for your notes. Obsidian on macOS
 is the currently supported host. The plugin is intended to work with multiple
@@ -29,29 +29,31 @@ npm run build
 ```
 
 The build writes `main.js` to the repository root, beside `manifest.json` and
-`styles.css`. It also copies all three files into `dist/obsidian-noter/`.
+`styles.css`. It also copies all three files into `dist/sir-scribbles/`.
 Copy these three files into:
 
 ```text
-YOUR_VAULT/.obsidian/plugins/obsidian-noter/
+YOUR_VAULT/.obsidian/plugins/sir-scribbles/
   manifest.json
   main.js
   styles.css
 ```
 
-Enable **obsidian-noter** under Obsidian's Community plugins. Open the sidebar through
-the ribbon button or the **obsidian-noter: Open obsidian-noter** command. The manifest declares
+Enable **Sir Scribbles** under Obsidian's Community plugins. Open the sidebar through
+the ribbon button or the **Sir Scribbles: Open Sir Scribbles** command. The manifest declares
 Obsidian 1.5.0+ as the initial API baseline; verification in a real app is pending.
 macOS is the only supported launch platform for this preview.
 
-When replacing the earlier preview, disable it and remove its old plugin folder
-before installing `obsidian-noter`. Restart Obsidian and enable **obsidian-noter**.
+When replacing the earlier preview, disable it and rename its plugin folder from
+`obsidian-noter` (or `noter`) to `sir-scribbles`, then replace `main.js`, `manifest.json`, and `styles.css`.
+Keep `data.json` to preserve the saved executable path. Restart Obsidian and enable
+**Sir Scribbles**. Reopen the sidebar and update any shortcut for its renamed command.
 
 ## Use the sidebar
 
 1. On first setup, enter the absolute path to your already installed Kiro executable.
    The path is saved and reused; later chats show **Start Kiro** without asking
-   for the path again. Change it under **Settings → Community plugins → obsidian-noter**
+   for the path again. Change it under **Settings → Community plugins → Sir Scribbles**
    if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
 2. Review the displayed vault directory. With a saved executable, sending your

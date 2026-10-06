@@ -1,4 +1,4 @@
-# obsidian-noter — Product specification
+# sir-scribbles — Product specification
 
 Version 0.2 · October 6, 2026 · Status: proposed MVP
 
@@ -19,7 +19,7 @@ The reviewed Agent Client plugin provides substantially more functionality than 
 ## MVP experience
 
 1. Install the plugin. Opening Obsidian or a note does not launch Kiro.
-2. Open the **obsidian-noter** sidebar using the ribbon button or command palette.
+2. Open the **Sir Scribbles** sidebar using the ribbon button or command palette.
 3. On first use, select the existing Kiro executable. The plugin validates the path without running it. The user authenticates separately through their normal CLI workflow.
 4. The panel shows the vault directory and a **Start Kiro** button. A short disclosure states: “Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.”
 5. Click Start, or send a first prompt with the saved executable to start ACP automatically. The panel transitions through Starting to Ready, or displays an actionable error. Draft changes or reset during startup prevent the original prompt from being sent.
@@ -34,7 +34,7 @@ Typing a prompt alone never launches Kiro. Switching active notes does not chang
 
 | Area | Required behavior |
 |---|---|
-| Header | obsidian-noter title, current status, and current directory. Show the resolved CLI identity/version after successful initialization when supplied. |
+| Header | sir-scribbles title, current status, and current directory. Show the resolved CLI identity/version after successful initialization when supplied. |
 | Transcript | Ordered user text, agent text, and tool activity. Bot replies render Markdown headings, lists, emphasis, tables and code. Prompts and tool activity stay plain text. Timestamp and Copy source on each message. No raw HTML, embeds or automatic link/media loading. |
 | Composer | Multiline text field, Attach selection and Attach file buttons, removable context preview, and Send button below the text field. Enter sends; Shift+Enter inserts a newline. Preserve unsent text and the attachment snapshot while switching notes. |
 | Permission card | Action title, kind, complete structured input, affected paths, working-directory/consent context when supplied, and the offered one-time decisions. One active card with an explicit queue count. |

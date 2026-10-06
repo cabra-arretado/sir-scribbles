@@ -215,7 +215,7 @@ export class AcpSession extends EventEmitter {
       const initialized = await this.request('initialize', {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        clientInfo: { name: 'obsidian-noter', version: '0.0.1' },
+        clientInfo: { name: 'sir-scribbles', version: '0.0.1' },
       });
       if (!isRecord(initialized) || initialized.protocolVersion !== 1 || !isRecord(initialized.agentCapabilities)) {
         throw new OperationalError('INCOMPATIBLE_PROTOCOL');

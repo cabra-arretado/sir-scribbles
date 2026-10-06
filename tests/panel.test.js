@@ -66,7 +66,7 @@ test('one-time approval buttons use original IDs, omit persistent choices and re
   model.session = { permissions: new Map([[7, card]]), decide: (id, option) => { decided = [id, option]; model.session.permissions.clear(); return true; } };
   model.state = 'waiting-for-approval';
   panel.render();
-  const buttons = [...root.querySelectorAll('.obsidian-noter-decisions button')];
+  const buttons = [...root.querySelectorAll('.sir-scribbles-decisions button')];
   assert.equal(buttons.length, 2);
   assert.ok(root.textContent.includes('/sensitive'));
   assert.equal(root.querySelectorAll('b, script').length, 0);
@@ -132,11 +132,11 @@ test('copy preserves exact plain text and streaming retains existing DOM rows', 
   const { model, panel, root, copied } = create(t);
   model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'one' } });
   panel.render();
-  const row = root.querySelector('.obsidian-noter-agent');
+  const row = root.querySelector('.sir-scribbles-agent');
   model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\ntwo' } });
   panel.render();
-  assert.equal(root.querySelector('.obsidian-noter-agent'), row);
-  assert.equal(row.querySelector('.obsidian-noter-markdown').textContent, 'one\ntwo');
+  assert.equal(root.querySelector('.sir-scribbles-agent'), row);
+  assert.equal(row.querySelector('.sir-scribbles-markdown').textContent, 'one\ntwo');
   row.querySelector('button').click();
   await tick();
   assert.equal(copied(), 'one\ntwo');
@@ -147,7 +147,7 @@ test('bot Markdown renders structure, streams incomplete formatting, and copies 
   const source = '# Plan\n\n**Bold** and *italic* with `code`.\n\n- First\n- Second\n\n> Quote\n\n```js\nconst x = "<img>";\n```\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n[Docs](https://example.com)\n\n**unfinished';
   model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: source } });
   panel.render();
-  const row = root.querySelector('.obsidian-noter-agent');
+  const row = root.querySelector('.sir-scribbles-agent');
   assert.equal(row.querySelector('h1').textContent, 'Plan');
   assert.equal(row.querySelector('strong').textContent, 'Bold');
   assert.equal(row.querySelector('em').textContent, 'italic');
@@ -158,7 +158,7 @@ test('bot Markdown renders structure, streams incomplete formatting, and copies 
   assert.equal(row.querySelector('a').getAttribute('href'), 'https://example.com');
   model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '**' } });
   panel.render();
-  assert.equal(root.querySelector('.obsidian-noter-agent'), row);
+  assert.equal(root.querySelector('.sir-scribbles-agent'), row);
   assert.equal([...row.querySelectorAll('strong')].at(-1).textContent, 'unfinished');
   row.querySelector('button').click();
   await tick();

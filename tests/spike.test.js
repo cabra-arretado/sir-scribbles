@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('../scripts/spike.js', import.meta.url));
-const executable = fileURLToPath(new URL('./fixtures/obsidian-noter-fixture.js', import.meta.url));
+const executable = fileURLToPath(new URL('./fixtures/sir-scribbles-fixture.js', import.meta.url));
 const cwd = fileURLToPath(new URL('./fixtures', import.meta.url));
 
 function run(args) {

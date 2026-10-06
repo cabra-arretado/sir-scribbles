@@ -6,7 +6,7 @@ import { composePrompt } from './draft.js';
 
 export const ERROR_TEXT = {
   ABSOLUTE_EXECUTABLE_REQUIRED: 'Choose the absolute path to your installed Kiro executable.',
-  EXECUTABLE_NOT_AVAILABLE: 'That file is unavailable or not executable. Change the Kiro path in Settings → Community plugins → obsidian-noter, then start a new chat to retry.',
+  EXECUTABLE_NOT_AVAILABLE: 'That file is unavailable or not executable. Change the Kiro path in Settings → Community plugins → Sir Scribbles, then start a new chat to retry.',
   MACOS_REQUIRED: 'This preview supports macOS desktop only.',
   STARTUP_TIMEOUT: 'Kiro did not become ready within 15 seconds. Check your CLI login and V3 installation, then start a new chat.',
   INCOMPATIBLE_PROTOCOL: 'Kiro returned an unsupported protocol. Check your V3 installation.',
