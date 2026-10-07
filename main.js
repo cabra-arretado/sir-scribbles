@@ -337,7 +337,7 @@ function unrecognizedMetadata(meta) {
   if (kiro.mcpTool !== void 0 && (!isRecord(kiro.mcpTool) || kiro.mcpTool.version !== 1)) found.push("_meta.kiro.mcpTool");
   return found;
 }
-function inspectPermission(params) {
+function inspectPermission(params, workspaceRoot = null) {
   if (!isRecord(params) || typeof params.sessionId !== "string" || !isRecord(params.toolCall)) {
     return { supported: false, reason: "INVALID_PERMISSION" };
   }
@@ -355,11 +355,18 @@ function inspectPermission(params) {
     }
     ids.add(option.optionId);
   }
-  const options = params.options.filter((option) => ["allow_once", "reject_once"].includes(option.kind));
-  return options.length ? { supported: true, options, unrecognized: unrecognizedMetadata(params._meta) } : { supported: false, reason: "NO_ONE_TIME_OPTIONS" };
+  const unrecognized = unrecognizedMetadata(params._meta);
+  const once = params.options.filter((option) => ["allow_once", "reject_once"].includes(option.kind));
+  if (!once.length) return { supported: false, reason: "NO_ONE_TIME_OPTIONS" };
+  const consent = params._meta?.kiro?.consent;
+  const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent === true && typeof consent.capability === "string" && consent.capability.length > 0 && typeof consent.resource === "string" && consent.resource.length > 0 && typeof workspaceRoot === "string" && consent.workspaceRoot === workspaceRoot;
+  if (!persistable) return { supported: true, options: once, unrecognized, rule: null };
+  const options = params.options.filter((option) => knownKinds.has(option.kind));
+  return { supported: true, options, unrecognized, rule: { capability: consent.capability, resource: consent.resource, workspaceRoot } };
 }
+var isPersistent = (option) => option.kind === "allow_always" || option.kind === "reject_always";
 var cancelledPermission = () => ({ outcome: { outcome: "cancelled" } });
-var selectedPermission = (optionId) => ({ outcome: { outcome: "selected", optionId } });
+var selectedPermission = (optionId, rule = null) => rule ? { outcome: { outcome: "selected", optionId }, _meta: { kiro: { consent: { scope: "workspace", resource: rule.resource, workspaceRoot: rule.workspaceRoot } } } } : { outcome: { outcome: "selected", optionId } };
 
 // src/process.js
 var import_node_child_process = require("node:child_process");
@@ -515,6 +522,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.terminate = terminate;
     this.state = "not-started";
     this.sessionId = null;
+    this.cwd = null;
     this.configOptions = [];
     this.startupUpdates = [];
     this.pending = /* @__PURE__ */ new Map();
@@ -659,13 +667,13 @@ var AcpSession = class extends import_node_events.EventEmitter {
       throw new OperationalError("PERMISSION_LIMIT");
     }
     const resolved = isRecord(params?.toolCall) ? { ...params, toolCall: this.mergeToolCall(params.toolCall, this.toolCalls.get(params.toolCall.toolCallId)) } : params;
-    const inspected = inspectPermission(resolved);
+    const inspected = inspectPermission(resolved, this.cwd);
     if (!inspected.supported) {
       this.reply(id, cancelledPermission());
       this.emit("unsupported-permission", inspected.reason);
       return;
     }
-    const card = { id, params: resolved, request: params, options: inspected.options, unrecognized: inspected.unrecognized };
+    const card = { id, params: resolved, request: params, options: inspected.options, unrecognized: inspected.unrecognized, rule: inspected.rule };
     this.permissions.set(key, card);
     this.setState("waiting-for-approval");
     this.emit("permission", card);
@@ -674,9 +682,10 @@ var AcpSession = class extends import_node_events.EventEmitter {
     const key = idKey(id);
     const card = this.permissions.get(key);
     const active = this.permissions.values().next().value;
-    if (this.state !== "waiting-for-approval" || !card || active !== card || !card.options.some((option) => option.optionId === optionId)) return false;
+    const option = card?.options.find((entry) => entry.optionId === optionId);
+    if (this.state !== "waiting-for-approval" || !card || active !== card || !option) return false;
     this.permissions.delete(key);
-    this.reply(id, selectedPermission(optionId));
+    this.reply(id, selectedPermission(optionId, isPersistent(option) ? card.rule : null));
     this.setState(this.permissions.size ? "waiting-for-approval" : "working");
     this.emit("permission-settled", id);
     return true;
@@ -757,6 +766,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
   async open(cwd, sessionId = null) {
     if (this.state !== "connected") throw new OperationalError("START_NOT_AVAILABLE");
     if (sessionId !== null && (!this.canLoad() || !label(sessionId))) throw new OperationalError("LOAD_NOT_SUPPORTED");
+    this.cwd = cwd;
     this.setState("starting");
     this.startupTimer = setTimeout(() => this.fail("STARTUP_TIMEOUT"), sessionId ? this.limits.loadMs : this.limits.startupMs);
     try {
@@ -6606,6 +6616,7 @@ var MASCOT_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAAB7CAYAAAC8
 var ICON_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABeUlEQVR4nN2XsUoDQRCG8yZW2gmCXUrBB0hjZRMsLAKWYhEbG8EHsAlCKh/BNPoSgoUgiDamSaE+wMoE/jBsZmdndvdSePDB3Saz8+3s3B3X6/2HY297K2hsRCB8nIssZrvdy2gCXIToTAAJchRXIrfPKVISRQIvb59ZpAaMZVwCCB5f34af37mKJNNUQFv50fBsCR+jmHjP3T3AV64lk8b4lpgF4j2sEaBr94rvTvoBtBCgeGkrVIH3yelSwNL1ub7AORalJifDlgIczGkSAFS6p8vDKrAFRQJ0/To5DouHCzP0fxDLYE5VgOBBfMIa3AJ85XQevp9XFbHCY2hO8zNAEsBvHgEeg4o2E7gfHSRpJpACiR6vBmtIIlUCX9ObFbHAYH9nTQBjEEBsswrwlecEiPhWNL+ILAIaRQJcJPUckASkSmxEgBIDPsYbkSc2vxFzAvFdwEUg4Op+SSB+LGsiEkWl1ypRQvUnmlQJr4A7qUXGQzOBro4/L+tCa3zNdeUAAAAASUVORK5CYII=";
 
 // src/panel.js
+var DECISIONS = { allow_once: "Allow once", reject_once: "Deny once", allow_always: "Always allow", reject_always: "Always deny" };
 var STATES = {
   "not-started": "Not started",
   starting: "Starting",
@@ -7148,9 +7159,18 @@ var ChatPanel = class {
     details.open = true;
     details.append(this.el("summary", "", "Action details"), this.el("pre", "sir-scribbles-permission-input", JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
     this.permissionArea.append(details);
+    if (card.rule) {
+      const rule = this.el("p", "sir-scribbles-caption sir-scribbles-rule", "Always choices are saved by the agent as a rule for this vault only, covering exactly ");
+      rule.append(
+        this.el("code", "", `${card.rule.capability} \xB7 ${card.rule.resource}`),
+        ". It stops asking for that from now on, in every chat. The agent keeps its rules outside the vault, in its own settings."
+      );
+      this.permissionArea.append(rule);
+    }
     const decisions = this.el("div", "sir-scribbles-decisions");
     for (const option of card.options) {
-      const button = this.button(`${option.kind === "allow_once" ? "Allow once" : "Deny once"} \xB7 ${option.name}`, () => {
+      const label2 = DECISIONS[option.kind];
+      const button = this.button(option.name.trim().toLowerCase() === label2.toLowerCase() ? label2 : `${label2} \xB7 ${option.name}`, () => {
         for (const child of decisions.children) child.disabled = true;
         this.model.decide(card, option.optionId);
         this.renderPermission();
