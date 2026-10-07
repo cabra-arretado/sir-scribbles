@@ -104,6 +104,7 @@ export class AcpSession extends EventEmitter {
     this.sessionId = null;
     this.cwd = null;
     this.configOptions = [];
+    this.configVersion = 0; // Bumped by every confirmed option list.
     this.startupUpdates = [];
     this.pending = new Map();
     this.expired = new Map(); // Timed-out request ID → handler for a late result, or null.
@@ -168,9 +169,10 @@ export class AcpSession extends EventEmitter {
       if (timeoutMs) entry.timer = setTimeout(() => {
         if (this.pending.get(id) !== entry) return;
         this.pending.delete(id);
-        if (this.expired.size >= this.limits.permissions) { this.fail('REQUEST_TIMEOUT'); return; }
-        this.expired.set(id, late);
         reject(new OperationalError('REQUEST_TIMEOUT'));
+        // Too many unanswered requests: stop remembering and end the session.
+        if (this.expired.size >= this.limits.permissions) this.fail('REQUEST_TIMEOUT');
+        else this.expired.set(id, late);
       }, timeoutMs);
       this.pending.set(id, entry);
       try { this.write({ jsonrpc: '2.0', id, method, params }); }
@@ -229,6 +231,7 @@ export class AcpSession extends EventEmitter {
 
   setConfigOptions(input) {
     this.configOptions = sanitizeConfigOptions(input, this.limits);
+    this.configVersion++;
     this.emit('config-options', this.configOptions);
   }
 
@@ -427,8 +430,15 @@ export class AcpSession extends EventEmitter {
     const option = this.configOptions.find(entry => entry.id === configId);
     if (!option?.options.some(entry => entry.value === value)) throw new OperationalError('CONFIG_VALUE_UNKNOWN');
     let result;
-    // A late confirmation still reports the agent's actual options.
-    const late = result => { if (!this.transportClosed && isRecord(result) && Array.isArray(result.configOptions)) this.setConfigOptions(result.configOptions); };
+    // A late confirmation still reports the agent's options, unless a newer
+    // confirmed change or agent update arrived since; its snapshot may then
+    // predate the current state, so the newer one is kept.
+    const version = this.configVersion;
+    const late = result => {
+      if (!this.transportClosed && this.configVersion === version && isRecord(result) && Array.isArray(result.configOptions)) {
+        this.setConfigOptions(result.configOptions);
+      }
+    };
     try { result = await this.request('session/set_config_option', { sessionId: this.sessionId, configId, value }, { timeoutMs: this.limits.requestMs, late }); }
     catch (error) {
       if (this.transportClosed) throw error;

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { AcpSession, FrameReader, sanitizeConfigOptions } from '../src/acp.js';
 import { LIMITS } from '../src/limits.js';
+import { ChatController } from '../src/chat.js';
 import { validateExecutable, AGENT_ARGS } from '../src/process.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/agent.js', import.meta.url));
@@ -465,4 +466,50 @@ test('an unconfirmed model change times out; a late confirmation still updates t
   await updated;
   assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'opus');
   assert.equal(session.state, 'ready');
+});
+
+test('the request that overflows the expired-request limit still rejects, and the session fails', async t => {
+  const session = create(t, 'history-stall', { requestMs: 20, permissions: 1 });
+  await session.connect();
+  await assert.rejects(session.listSessions('/fixture'), { code: 'HISTORY_TIMEOUT' });
+  await assert.rejects(session.listSessions('/fixture'), { code: 'REQUEST_TIMEOUT' });
+  assert.equal(session.state, 'failed');
+  assert.equal(session.pending.size, 0);
+});
+
+test('an overflowing model change settles the controller instead of leaving it pending', async t => {
+  let session;
+  const controller = new ChatController('/fixture', {
+    validate: async () => {},
+    launch: () => spawn(process.execPath, [fixture, 'config-stall'], { detached: true, stdio: ['pipe', 'pipe', 'pipe'] }),
+    createSession: child => (session = new AcpSession(child, { limits: { ...LIMITS, requestMs: 20, permissions: 1, shutdownMs: 200 } })),
+  });
+  t.after(() => controller.dispose());
+  await controller.start('/fixture-agent');
+  await controller.setModel('opus');
+  assert.match(controller.error, /did not confirm the model change/);
+  assert.equal(controller.configPending, false);
+  await controller.setModel('sonnet');
+  assert.equal(controller.configPending, false);
+  assert.equal(controller.state, 'failed');
+  assert.equal(session.pending.size, 0);
+});
+
+test('a late model reply never replaces a newer confirmed change or agent update', async t => {
+  const session = create(t, 'config-stall-first', { requestMs: 50 });
+  await session.start('/fixture');
+  await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_TIMEOUT' });
+  await session.setConfigOption('model', 'sonnet');
+  await delay(200); // The stale reply to the Opus request has arrived by now.
+  assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'sonnet');
+  assert.equal(session.state, 'ready');
+
+  const notified = create(t, 'config-stall', { requestMs: 50 });
+  await notified.start('/fixture');
+  await assert.rejects(notified.setConfigOption('model', 'opus'), { code: 'CONFIG_TIMEOUT' });
+  const current = notified.configOptions.map(option => option.id !== 'model' ? option
+    : { ...option, currentValue: 'sonnet', options: option.options.map(value => ({ ...value })) });
+  notified.deliver({ sessionUpdate: 'config_option_update', configOptions: current });
+  await delay(200);
+  assert.equal(notified.configOptions.find(option => option.id === 'model').currentValue, 'sonnet');
 });
