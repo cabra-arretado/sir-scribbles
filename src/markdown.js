@@ -97,7 +97,18 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
       } else if (token.type === 'hardbreak' || token.type === 'hr') {
         parent.append(document.createElement(token.type === 'hr' ? 'hr' : 'br'));
       } else if (tags.has(token.tag)) {
-        if (token.nesting === -1) { stack.pop(); continue; }
+        if (token.nesting === -1) {
+          const closed = stack.pop();
+          // Link text is agent-controlled; show where the click actually goes.
+          const host = closed.dataset?.externalHost;
+          if (host && ![host, closed.getAttribute('href')].includes(closed.textContent.trim())) {
+            const label = document.createElement('span');
+            label.className = 'sir-scribbles-link-host';
+            label.textContent = ` (${host})`;
+            closed.after(label);
+          }
+          continue;
+        }
         const element = document.createElement(token.tag);
         if (token.tag === 'a') {
           const href = token.attrGet('href') ?? '';
@@ -107,6 +118,8 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
             element.setAttribute('href', href);
             element.setAttribute('target', '_blank');
             element.setAttribute('rel', 'noopener noreferrer');
+            try { if (/^https?:/i.test(href)) element.dataset.externalHost = new URL(href).host; }
+            catch { /* Malformed URLs keep only the full-address tooltip. */ }
           } else if (href.startsWith('obsidian://open?')) {
             try {
               const url = new URL(href);
@@ -118,7 +131,9 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
             if (target) wireNote(element, target);
           }
           const title = token.attrGet('title');
-          if (title) element.title = title;
+          const external = element.hasAttribute('href') && element.getAttribute('href') !== '#';
+          if (external) element.title = title ? `${title}\n${href}` : href;
+          else if (title) element.title = title;
         } else if (token.tag === 'ol') {
           const start = token.attrGet('start');
           if (start && /^\d+$/.test(start)) element.setAttribute('start', start);

@@ -18,3 +18,12 @@ export class OperationalError extends Error {
 }
 
 export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// Define rather than assign: an agent-supplied "__proto__" key stays a visible
+// own field instead of replacing the prototype and supplying hidden values.
+export function mergeDefined(target, source) {
+  for (const [key, value] of Object.entries(source)) {
+    if (value != null) Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  }
+  return target;
+}

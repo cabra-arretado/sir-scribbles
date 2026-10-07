@@ -46,7 +46,8 @@ macOS is the only supported launch platform for this preview.
 
 When replacing the earlier preview, disable it and rename its plugin folder from
 `obsidian-noter` (or `noter`) to `sir-scribbles`, then replace `main.js`, `manifest.json`, and `styles.css`.
-Keep `data.json` to preserve the saved executable path. Restart Obsidian and enable
+The executable path is now stored on this device per vault, not in the vault's
+`data.json`, so enter it once more after upgrading. Restart Obsidian and enable
 **Sir Scribbles**. Reopen the sidebar and update any shortcut for its renamed command.
 
 ## Use the sidebar

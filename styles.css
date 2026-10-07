@@ -36,6 +36,7 @@
 .sir-scribbles-markdown { overflow-wrap: anywhere; line-height: 1.75; font-size: 13px; user-select: text; }
 .sir-scribbles-markdown > :first-child { margin-top: 0; }
 .sir-scribbles-markdown > :last-child { margin-bottom: 0; }
+.sir-scribbles-link-host { color: var(--text-faint); font-size: 11px; }
 .sir-scribbles-markdown p { margin: 0 0 12px; }
 .sir-scribbles-markdown :is(h1,h2,h3,h4,h5,h6) { line-height: 1.35; margin: 18px 0 10px; font-weight: 650; }
 .sir-scribbles-markdown h1 { font-size: 21px; }

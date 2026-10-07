@@ -302,6 +302,12 @@ var OperationalError = class extends Error {
   }
 };
 var isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+function mergeDefined(target, source) {
+  for (const [key, value] of Object.entries(source)) {
+    if (value != null) Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  }
+  return target;
+}
 
 // src/permissions.js
 var knownKinds = /* @__PURE__ */ new Set(["allow_once", "reject_once", "allow_always", "reject_always"]);
@@ -591,9 +597,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.toolCalls.set(update.toolCallId, call);
   }
   mergeToolCall(update, previous = {}) {
-    const call = { ...previous };
-    for (const [key, value] of Object.entries(update)) if (value != null) call[key] = value;
-    return call;
+    return mergeDefined(mergeDefined({}, previous), update);
   }
   permission(id, params) {
     const key = idKey(id);
@@ -963,8 +967,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
       else this.messages.push({ role: "agent", text: text2, timestamp: Date.now(), sourcePath: this.turnSourcePath });
     } else if (["tool_call", "tool_call_update"].includes(update.sessionUpdate) && typeof update.toolCallId === "string") {
       const previous = this.tools.get(update.toolCallId);
-      const data = { ...previous?.data };
-      for (const [key, value] of Object.entries(update)) if (value != null) data[key] = value;
+      const data = mergeDefined(mergeDefined({}, previous?.data ?? {}), update);
       const text2 = JSON.stringify(data);
       if (!this.retainUi(Buffer.byteLength(text2))) return;
       if (previous) {
@@ -6250,7 +6253,14 @@ function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
         parent.append(document.createElement(token.type === "hr" ? "hr" : "br"));
       } else if (tags.has(token.tag)) {
         if (token.nesting === -1) {
-          stack.pop();
+          const closed = stack.pop();
+          const host = closed.dataset?.externalHost;
+          if (host && ![host, closed.getAttribute("href")].includes(closed.textContent.trim())) {
+            const label = document.createElement("span");
+            label.className = "sir-scribbles-link-host";
+            label.textContent = ` (${host})`;
+            closed.after(label);
+          }
           continue;
         }
         const element = document.createElement(token.tag);
@@ -6260,6 +6270,10 @@ function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
             element.setAttribute("href", href);
             element.setAttribute("target", "_blank");
             element.setAttribute("rel", "noopener noreferrer");
+            try {
+              if (/^https?:/i.test(href)) element.dataset.externalHost = new URL(href).host;
+            } catch {
+            }
           } else if (href.startsWith("obsidian://open?")) {
             try {
               const url = new URL(href);
@@ -6272,7 +6286,10 @@ function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
             if (target) wireNote(element, target);
           }
           const title = token.attrGet("title");
-          if (title) element.title = title;
+          const external = element.hasAttribute("href") && element.getAttribute("href") !== "#";
+          if (external) element.title = title ? `${title}
+${href}` : href;
+          else if (title) element.title = title;
         } else if (token.tag === "ol") {
           const start = token.attrGet("start");
           if (start && /^\d+$/.test(start)) element.setAttribute("start", start);
@@ -6651,6 +6668,24 @@ var ChatPanel = class {
 
 // src/main.js
 var VIEW_TYPE = "sir-scribbles";
+function pathKey(app) {
+  const adapter = app.vault.adapter;
+  return adapter instanceof import_obsidian.FileSystemAdapter ? `sir-scribbles:executable:${adapter.getBasePath()}` : null;
+}
+function loadPath(app) {
+  const key = pathKey(app);
+  try {
+    const value = key && globalThis.localStorage?.getItem(key);
+    return typeof value === "string" ? value : "";
+  } catch {
+    return "";
+  }
+}
+function storePath(app, path) {
+  const key = pathKey(app);
+  if (!key) throw new Error("Local desktop vault required");
+  globalThis.localStorage.setItem(key, path);
+}
 var ResetModal = class extends import_obsidian.Modal {
   constructor(app, resolve) {
     super(app);
@@ -6764,8 +6799,7 @@ var SirScribblesPlugin = class extends import_obsidian.Plugin {
   async onload() {
     this.unloaded = false;
     this.shutdownPending = null;
-    const saved = await this.loadData();
-    this.executablePath = typeof saved?.executablePath === "string" ? saved.executablePath : "";
+    this.executablePath = loadPath(this.app);
     this.lastEditor = null;
     this.activeView = null;
     this.controller = null;
@@ -6788,8 +6822,8 @@ var SirScribblesPlugin = class extends import_obsidian.Plugin {
     if (active) this.lastEditor = active;
   }
   async savePath(path) {
+    storePath(this.app, path);
     this.executablePath = path;
-    await this.saveData({ executablePath: path });
     this.activeView?.panel?.render();
   }
   async openChat() {

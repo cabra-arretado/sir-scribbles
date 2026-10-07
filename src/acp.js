@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { TextDecoder } from 'node:util';
-import { LIMITS, OperationalError, isRecord } from './limits.js';
+import { LIMITS, OperationalError, isRecord, mergeDefined } from './limits.js';
 import { inspectPermission, cancelledPermission, selectedPermission } from './permissions.js';
 import { terminateOwnedProcess } from './process.js';
 
@@ -173,9 +173,7 @@ export class AcpSession extends EventEmitter {
   }
 
   mergeToolCall(update, previous = {}) {
-    const call = { ...previous };
-    for (const [key, value] of Object.entries(update)) if (value != null) call[key] = value;
-    return call;
+    return mergeDefined(mergeDefined({}, previous), update);
   }
 
   permission(id, params) {

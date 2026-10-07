@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { AcpSession } from './acp.js';
 import { launchKiro, validateExecutable, terminateOwnedProcess } from './process.js';
-import { OperationalError, LIMITS } from './limits.js';
+import { OperationalError, LIMITS, mergeDefined } from './limits.js';
 import { composePrompt } from './draft.js';
 
 export const ERROR_TEXT = {
@@ -137,8 +137,7 @@ export class ChatController extends EventEmitter {
       else this.messages.push({ role: 'agent', text, timestamp: Date.now(), sourcePath: this.turnSourcePath });
     } else if (['tool_call', 'tool_call_update'].includes(update.sessionUpdate) && typeof update.toolCallId === 'string') {
       const previous = this.tools.get(update.toolCallId);
-      const data = { ...previous?.data };
-      for (const [key, value] of Object.entries(update)) if (value != null) data[key] = value;
+      const data = mergeDefined(mergeDefined({}, previous?.data ?? {}), update);
       // Incoming JSON is already byte/depth bounded by the transport. Keep its
       // display representation compact so nesting cannot multiply allocations
       // through indentation before the session-budget check.

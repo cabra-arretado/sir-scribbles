@@ -13,9 +13,18 @@ function create(t) {
   const events = new Map();
   const writes = [];
   let launches = 0;
+  const stored = new Map([['sir-scribbles:executable:/other-vault', '/fixture/other']]);
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value),
+  } });
+  t.after(() => {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  });
   class Plugin {
     constructor(app) { this.app = app; }
-    async loadData() { return { executablePath: '/fixture/kiro' }; }
+    async loadData() { return { executablePath: '/vault-controlled/kiro' }; }
     async saveData(data) { writes.push(data); }
     registerView(type, factory) { this.factory = factory; }
     addRibbonIcon(icon, title, fn) { this.ribbon = fn; }
@@ -49,18 +58,20 @@ function create(t) {
   const leaf = { app, detached: false, detach() { this.detached = true; }, async setViewState() { this.view = plugin.factory(this); await this.view.onOpen(); } };
   leaves.push(leaf);
   t.after(async () => { await plugin.controller?.dispose(); dom.window.close(); });
-  return { plugin, app, leaf, leaves, events, writes, launches: () => launches };
+  return { plugin, app, leaf, leaves, events, writes, stored, launches: () => launches };
 }
 
 test('Obsidian plugin enablement and restored sidebar never launch a CLI or persist content', async t => {
-  const { plugin, leaf, launches, writes } = create(t);
+  const { plugin, leaf, launches, writes, stored } = create(t);
   await plugin.onload();
+  assert.equal(plugin.executablePath, '', 'vault plugin data and other vaults never choose the executable');
   await leaf.setViewState();
   assert.equal(launches(), 0);
   assert.equal(plugin.controller.state, 'not-started');
   plugin.controller.setDraft('private draft');
   await plugin.savePath('/fixture/new-path');
-  assert.deepEqual(writes, [{ executablePath: '/fixture/new-path' }]);
+  assert.deepEqual(writes, []);
+  assert.equal(stored.get('sir-scribbles:executable:/fixture-vault'), '/fixture/new-path');
   await leaf.view.onClose();
   assert.equal(plugin.controller, null);
   assert.equal(launches(), 0);

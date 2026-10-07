@@ -205,6 +205,16 @@ test('Markdown cannot execute HTML, load images or activate application links', 
   assert.equal(root.querySelectorAll('a[href]').length, 0);
 });
 
+test('external links show their destination host and full address', t => {
+  const { model, panel } = create(t);
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[the docs](https://evil.test/?d=secret "Docs") <https://plain.test/>' } });
+  panel.render();
+  const [disguised, plain] = panel.transcript.querySelectorAll('.sir-scribbles-agent a');
+  assert.equal(disguised.nextSibling.textContent, ' (evil.test)');
+  assert.equal(disguised.title, 'Docs\nhttps://evil.test/?d=secret');
+  assert.equal(plain.nextSibling?.className ?? '', '');
+});
+
 test('New chat invalidates a Start awaiting settings save', async t => {
   const { model, panel } = create(t);
   let finishSave;

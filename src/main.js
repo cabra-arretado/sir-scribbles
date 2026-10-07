@@ -6,6 +6,23 @@ import { validateExecutable } from './process.js';
 
 const VIEW_TYPE = 'sir-scribbles';
 
+// The executable path is a device setting, not vault content. Plugin data lives
+// inside the vault, where sync or a shared repository could change what runs.
+function pathKey(app) {
+  const adapter = app.vault.adapter;
+  return adapter instanceof FileSystemAdapter ? `sir-scribbles:executable:${adapter.getBasePath()}` : null;
+}
+function loadPath(app) {
+  const key = pathKey(app);
+  try { const value = key && globalThis.localStorage?.getItem(key); return typeof value === 'string' ? value : ''; }
+  catch { return ''; }
+}
+function storePath(app, path) {
+  const key = pathKey(app);
+  if (!key) throw new Error('Local desktop vault required');
+  globalThis.localStorage.setItem(key, path);
+}
+
 class ResetModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
   onOpen() {
@@ -98,8 +115,7 @@ export default class SirScribblesPlugin extends Plugin {
   async onload() {
     this.unloaded = false;
     this.shutdownPending = null;
-    const saved = await this.loadData();
-    this.executablePath = typeof saved?.executablePath === 'string' ? saved.executablePath : '';
+    this.executablePath = loadPath(this.app);
     this.lastEditor = null;
     this.activeView = null;
     this.controller = null;
@@ -121,8 +137,8 @@ export default class SirScribblesPlugin extends Plugin {
     if (active) this.lastEditor = active;
   }
   async savePath(path) {
+    storePath(this.app, path);
     this.executablePath = path;
-    await this.saveData({ executablePath: path });
     this.activeView?.panel?.render();
   }
   async openChat() {

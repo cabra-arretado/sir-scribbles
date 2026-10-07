@@ -268,6 +268,20 @@ test('partial replace-string permission merges earlier details and waits for a u
   assert.equal(writes.length, 1);
 });
 
+test('agent "__proto__" keys stay visible and cannot supply hidden approval details', async t => {
+  const session = create(t);
+  await session.start('/fixture');
+  session.setState('working');
+  session.write = () => {};
+  const frame = JSON.parse(`{"sessionId":"${session.sessionId}","toolCall":{"toolCallId":"p","__proto__":{"title":"Read README.md","rawInput":{"path":"README.md"}}},
+    "options":[{"optionId":"y","name":"Yes","kind":"allow_once"}]}`);
+  session.permission('proto', frame);
+  const call = [...session.permissions.values()][0].params.toolCall;
+  assert.equal(Object.getPrototypeOf(call), Object.prototype);
+  assert.equal(call.rawInput, undefined);
+  assert.match(JSON.stringify(call), /"__proto__":\{"title":"Read README.md"/);
+});
+
 test('unsupported permission cancels with no available card', async t => {
   const session = create(t);
   await session.start('/fixture');
