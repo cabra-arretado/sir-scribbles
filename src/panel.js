@@ -1,4 +1,4 @@
-import { renderMarkdown } from './markdown.js';
+import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
 
@@ -22,6 +22,16 @@ export class ChatPanel {
     this.lastQueued = -1;
     this.lastSelection = undefined;
     this.lastPath = null;
+    this.streaming = new Set();
+    this.frame = null;
+    this.lastFrame = 0;
+    this.paintAfter = 0;
+    this.initialized = false;
+    const view = this.document.defaultView;
+    // Pace streamed replies on animation frames. Without them (tests) or with
+    // reduced motion, text is shown as soon as it arrives.
+    this.animate = typeof view?.requestAnimationFrame === 'function'
+      && !view.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     this.build();
     this.listener = () => this.schedule();
     controller.on('change', this.listener);
@@ -257,21 +267,75 @@ export class ChatPanel {
         this.transcript.append(root);
       }
       if (row.summary) row.summary.textContent = `${typeof message.data.title === 'string' ? message.data.title : 'Tool'} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
-      // Reparse only a changed bot reply so incomplete streamed markup becomes
-      // formatted as it arrives. Keep the message row, timestamp and Copy button.
-      if (message.text !== row.rendered) {
-        if (message.role === 'agent') renderMarkdown(row.body, message.text, {
-          sourcePath: message.sourcePath,
-          openNote: this.actions.openNote ? async (...args) => {
-            try { if (!this.disposed) await this.actions.openNote(...args); }
-            catch { if (!this.disposed) { this.model.error = 'Could not open that note in this vault.'; this.model.changed(); } }
-          } : undefined,
-        });
-        else row.body.textContent = message.text;
-      }
-      row.rendered = message.text;
+      if (message.role === 'agent') this.updateReply(row, message);
+      else if (message.text !== row.rendered) { row.body.textContent = message.text; row.rendered = message.text; }
     }
+    const last = this.model.messages.at(-1);
+    for (const [message, row] of this.rows) {
+      if (message.role === 'agent') row.root.classList.toggle('is-streaming', this.streaming.has(row) || (message === last && this.model.state === 'working'));
+    }
+    this.initialized = true;
     if (nearBottom) this.transcript.scrollTop = this.transcript.scrollHeight;
+  }
+
+  // Streamed text arrives in uneven bursts. Reveal it at a pace that follows
+  // the backlog: steady for small chunks, catching up quickly on large ones.
+  updateReply(row, message) {
+    if (row.target === message.text) return;
+    if (!message.text.startsWith(row.target ?? '')) row.shown = 0;
+    row.target = message.text;
+    row.message = message;
+    // Rows that already exist when the panel opens are history, not a stream.
+    if (!this.animate || !this.initialized) { row.shown = message.text.length; this.paintReply(row); return; }
+    row.shown ??= 0;
+    this.streaming.add(row);
+    this.requestFrame();
+  }
+  paintReply(row) {
+    const text = row.message.text;
+    const visible = row.shown >= text.length ? text : settleStreaming(text.slice(0, row.shown));
+    if (visible === row.rendered) return;
+    renderMarkdown(row.body, visible, {
+      sourcePath: row.message.sourcePath,
+      openNote: this.actions.openNote ? async (...args) => {
+        try { if (!this.disposed) await this.actions.openNote(...args); }
+        catch { if (!this.disposed) { this.model.error = 'Could not open that note in this vault.'; this.model.changed(); } }
+      } : undefined,
+    });
+    row.rendered = visible;
+  }
+  requestFrame() {
+    if (this.frame || this.disposed || !this.streaming.size) return;
+    this.frame = this.document.defaultView.requestAnimationFrame(now => {
+      this.frame = null;
+      if (this.disposed) return;
+      const elapsed = Math.min(now - (this.lastFrame || now - 16), 250);
+      // Ease toward the received text: about 63% of the backlog per 250 ms
+      // while the agent is writing, per 80 ms once it is done, and never
+      // slower than ~80 characters a second.
+      const settle = this.model.state === 'working' ? 250 : 80;
+      // Each paint re-parses the visible reply, so cost grows with its length
+      // (~2 ms at 10k characters, ~17 ms at 100k). Skip frames after a costly
+      // paint to keep rendering under about a fifth of the time.
+      if (now < this.paintAfter) { this.requestFrame(); return; }
+      const pinned = this.transcript.scrollHeight - this.transcript.scrollTop - this.transcript.clientHeight < 80;
+      const started = performance.now();
+      for (const row of this.streaming) {
+        const total = row.message.text.length;
+        const backlog = total - row.shown;
+        row.shown = Math.min(total, row.shown + Math.max(Math.ceil(elapsed * 0.08), Math.ceil(backlog * (1 - Math.exp(-elapsed / settle)))));
+        this.paintReply(row);
+        if (row.shown >= total) {
+          this.streaming.delete(row);
+          row.root.classList.toggle('is-streaming', row.message === this.model.messages.at(-1) && this.model.state === 'working');
+        }
+      }
+      this.paintAfter = now + (performance.now() - started) * 4;
+      this.lastFrame = now;
+      if (pinned) this.transcript.scrollTop = this.transcript.scrollHeight;
+      if (this.streaming.size) this.requestFrame();
+      else this.lastFrame = 0;
+    });
   }
 
   renderSelection() {
@@ -344,6 +408,8 @@ export class ChatPanel {
   dispose() {
     this.disposed = true;
     clearTimeout(this.timer);
+    if (this.frame) this.document.defaultView.cancelAnimationFrame?.(this.frame);
+    this.streaming.clear();
     this.model.off('change', this.listener);
     this.rows.clear();
     this.container.replaceChildren();

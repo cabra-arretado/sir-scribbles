@@ -14,10 +14,26 @@ class Fixture {
   setError() { this.error = 'Preview only. No agent executable is launched.'; this.changed(); }
   start() { this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.changed(); }
   newChat() { this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
-  send() { this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' }, { role: 'agent', text: 'This is an interactive UI preview. The actual plugin sends this prompt to your local agent process.' }); this.draft = ''; this.selection = null; this.file = null; this.changed(); }
+  send() {
+    this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' });
+    this.draft = ''; this.selection = null; this.file = null; this.state = 'working'; this.changed();
+    // Replay a reply in uneven bursts, the way a real agent streams.
+    const reply = { role: 'agent', text: '', timestamp: Date.now() };
+    let at = 0;
+    const burst = () => {
+      if (!at) this.messages.push(reply);
+      const size = 4 + Math.floor(Math.random() * 60);
+      reply.text += STREAM.slice(at, at + size); at += size;
+      if (at < STREAM.length) setTimeout(burst, 40 + Math.random() * 260);
+      else this.state = 'ready';
+      this.changed();
+    };
+    setTimeout(burst, 600);
+  }
   decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId === 'allow' ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
+const STREAM = 'This is an interactive UI preview. In the plugin, your prompt goes to the **local agent process** and its reply streams back in uneven bursts.\n\n## What you are seeing\n\n- Text eases in at a pace that follows the *backlog*, not each burst.\n- Unfinished `inline code`, **bold** and [links](https://example.com) never flash as raw syntax.\n- Earlier paragraphs stay put while the tail grows.\n\n```js\nconst principle = "Keep the user in the loop";\n```\n\nSee [[Projects/Launch notes|Launch notes]] for the original.';
 // Stand-in for Obsidian's setIcon with the few Lucide icons the panel uses.
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',

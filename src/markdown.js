@@ -57,6 +57,55 @@ export function noteLinkTarget(href, encoded = false) {
   } catch { return null; }
 }
 
+// True when the last occurrence of a marker opens a span, i.e. it is followed
+// by text. An odd count alone would also close lone operators like `5 * 3`.
+function unclosed(text, marker) {
+  const parts = text.split(marker);
+  return parts.length % 2 === 0 && /^\S/.test(parts.at(-1));
+}
+
+// Display-only tidy-up for a reply that is still streaming. Unfinished syntax
+// would otherwise flash as raw characters (`**bo`), or briefly restyle the
+// paragraph above (a lone `-` underline makes it a heading). The final render
+// always uses the exact source. Scans are linear: the reply is agent-supplied.
+export function settleStreaming(source) {
+  let text = source;
+  let lastBreak = text.lastIndexOf('\n');
+  // A line that is only a list, heading, quote or rule marker so far, or a
+  // fence line whose language is still arriving.
+  let line = text.slice(lastBreak + 1);
+  if (line.length < 16 && /^\s*(?:[-=*_#>+]+|\d+[.)])?\s*$/.test(line) || /^ {0,3}(?:```|~~~)/.test(line)) {
+    text = text.slice(0, lastBreak + 1);
+  }
+  // An open fenced block already renders as code until it closes.
+  if ((text.match(/^ {0,3}(?:```|~~~)/gm) ?? []).length % 2) return text;
+  let end = text.length;
+  while (end && '*_~` \t\n'.includes(text[end - 1])) end--;
+  text = text.slice(0, end);
+  lastBreak = text.lastIndexOf('\n');
+  line = text.slice(lastBreak + 1);
+  // A link still arriving shows its label only: `[label](htt`, and the
+  // `[[path|label` of a note link, whose bare path may later gain a label.
+  const wiki = line.lastIndexOf('[[');
+  const target = line.lastIndexOf('](');
+  if (wiki >= 0 && !line.includes(']]', wiki) && line[wiki - 1] !== '!') {
+    const inner = line.slice(wiki + 2);
+    line = line.slice(0, wiki) + (inner.includes('|') ? inner.slice(inner.lastIndexOf('|') + 1) : '');
+  } else if (target >= 0 && !/[)\s]/.test(line.slice(target + 2))) {
+    const open = line.lastIndexOf('[', target);
+    if (open >= 0 && !line.slice(open + 1, target).includes(']')) line = line.slice(0, open) + line.slice(open + 1, target);
+  }
+  text = text.slice(0, lastBreak + 1) + line;
+  const block = text.slice(text.lastIndexOf('\n\n') + 1);
+  let suffix = '';
+  if ((block.match(/`/g) ?? []).length % 2) suffix += '`';
+  const prose = block.replace(/`[^`]*`?/g, '');
+  if (unclosed(prose.replace(/\*\*/g, '').replace(/^[ \t]*\* /gm, ''), '*')) suffix += '*';
+  if (unclosed(prose, '**')) suffix += '**';
+  if (unclosed(prose, '~~')) suffix += '~~';
+  return text + suffix;
+}
+
 export function renderMarkdown(container, source, { openNote, sourcePath = '' } = {}) {
   const document = container.ownerDocument;
   const fragment = document.createDocumentFragment();
@@ -144,5 +193,12 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
     }
   };
   append(markdown.parse(source, {}));
-  container.replaceChildren(fragment);
+  // Keep leading blocks that did not change, so streaming only touches the
+  // tail: earlier paragraphs do not reflow and a text selection survives.
+  const previous = [...container.childNodes];
+  const next = [...fragment.childNodes];
+  let same = 0;
+  while (same < previous.length && same < next.length && previous[same].isEqualNode(next[same])) same++;
+  for (const node of previous.slice(same)) node.remove();
+  container.append(...next.slice(same));
 }
