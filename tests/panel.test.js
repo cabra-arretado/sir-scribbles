@@ -78,7 +78,8 @@ test('one-time approval buttons use original IDs, omit persistent choices and re
   const { model, panel, root } = create(t);
   const card = { id: 7, params: {
     toolCall: { title: 'Write <b>file</b>', kind: 'edit', rawInput: { path: '/sensitive', contents: '<script>hi()</script>' } },
-  }, options: [{ optionId: 'actual-allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'actual-deny', name: 'Deny', kind: 'reject_once' }] };
+  }, options: [{ optionId: 'actual-allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'actual-deny', name: 'Deny', kind: 'reject_once' }],
+  unrecognized: ['_meta.kiro.consent.scope'] };
   let decided;
   model.session = { permissions: new Map([[7, card]]), decide: (id, option) => { decided = [id, option]; model.session.permissions.clear(); return true; } };
   model.state = 'waiting-for-approval';
@@ -86,6 +87,7 @@ test('one-time approval buttons use original IDs, omit persistent choices and re
   const buttons = [...root.querySelectorAll('.sir-scribbles-decisions button')];
   assert.equal(buttons.length, 2);
   assert.ok(root.textContent.includes('/sensitive'));
+  assert.ok(root.textContent.includes('Unrecognized approval metadata: _meta.kiro.consent.scope.'));
   assert.equal(root.querySelectorAll('b, script').length, 0);
   buttons[0].click();
   assert.deepEqual(decided, [7, 'actual-allow']);

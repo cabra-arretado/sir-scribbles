@@ -197,7 +197,7 @@ export class AcpSession extends EventEmitter {
       this.emit('unsupported-permission', inspected.reason);
       return;
     }
-    const card = { id, params: resolved, request: params, options: inspected.options };
+    const card = { id, params: resolved, request: params, options: inspected.options, unrecognized: inspected.unrecognized };
     this.permissions.set(key, card);
     this.setState('waiting-for-approval');
     this.emit('permission', card);

@@ -40,12 +40,19 @@ test('persistent-only, duplicate, unknown and extended options are unsupported',
   for (const options of cases) assert.equal(inspectPermission({ ...request(), options }).supported, false);
 });
 
-test('known consent is preserved; unknown security semantics fail closed', () => {
+test('known consent is preserved; unknown metadata is listed, never cancelled', () => {
   const params = request();
   params._meta = { kiro: { consent: { capability: 'shell', workspaceRoot: '/fixture', persistableConsent: true } } };
-  assert.equal(inspectPermission(params).supported, true);
+  assert.deepEqual(inspectPermission(params).unrecognized, []);
+  // Capabilities are open-ended, e.g. a replace-in-file edit.
+  params._meta.kiro.consent.capability = 'str_replace';
+  assert.deepEqual(inspectPermission(params).unrecognized, []);
   params._meta.kiro.consent.scope = 'global';
-  assert.equal(inspectPermission(params).supported, false);
-  params._meta = { trustOptions: ['all'] };
-  assert.equal(inspectPermission(params).supported, false);
+  params._meta.kiro.consent.persistableConsent = 'yes';
+  params._meta.kiro.mcpTool = { version: 2 };
+  params._meta.trustOptions = ['all'];
+  const inspected = inspectPermission(params);
+  assert.equal(inspected.supported, true);
+  assert.deepEqual(inspected.options.map(option => option.kind), ['allow_once', 'reject_once']);
+  assert.deepEqual(inspected.unrecognized.sort(), ['_meta.kiro.consent.persistableConsent', '_meta.kiro.consent.scope', '_meta.kiro.mcpTool', '_meta.trustOptions']);
 });

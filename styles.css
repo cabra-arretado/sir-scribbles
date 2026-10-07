@@ -10,7 +10,7 @@
 .sir-scribbles-header { position: relative; padding: 20px 20px 14px; border-bottom: 1px solid var(--background-modifier-border); }
 .sir-scribbles-title-row { display: flex; align-items: center; gap: 9px; }
 .sir-scribbles-title-row h2 { font-size: 16px; font-weight: 650; letter-spacing: -.3px; margin: 0; }
-.sir-scribbles-mark { height: 40px; width: 40px; object-fit: contain; image-rendering: pixelated; flex-shrink: 0; }
+.sir-scribbles-mark { height: 32px; width: 32px; object-fit: contain; image-rendering: pixelated; flex-shrink: 0; }
 .sir-scribbles-status { margin-left: auto; font-size: 11px; color: var(--text-muted); border-radius: 20px; padding: 4px 8px; background: var(--background-secondary); white-space: nowrap; }
 .sir-scribbles-status[data-state="ready"] { color: var(--text-success, var(--sir-scribbles-accent)); }
 .sir-scribbles-status[data-state="working"], .sir-scribbles-status[data-state="waiting-for-approval"] { color: var(--text-accent); }

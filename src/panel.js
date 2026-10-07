@@ -1,5 +1,6 @@
 import { renderMarkdown } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
+import { ICON_URL } from './icon.js';
 
 const STATES = {
   'not-started': 'Not started', starting: 'Starting', ready: 'Ready', working: 'Working',
@@ -44,7 +45,7 @@ export class ChatPanel {
     const header = this.el('header', 'sir-scribbles-header');
     const title = this.el('div', 'sir-scribbles-title-row');
     const mascot = this.el('img', 'sir-scribbles-mark');
-    mascot.src = MASCOT_URL;
+    mascot.src = ICON_URL;
     mascot.alt = '';
     title.append(mascot, this.el('h2', '', 'Sir Scribbles'));
     this.status = this.el('span', 'sir-scribbles-status');
@@ -65,7 +66,6 @@ export class ChatPanel {
     this.container.append(this.error);
 
     this.transcript = this.el('div', 'sir-scribbles-transcript');
-    this.transcript.setAttribute('aria-label', 'Conversation');
     this.empty = this.el('section', 'sir-scribbles-empty');
     const emptyMascot = this.el('img', 'sir-scribbles-empty-mark');
     emptyMascot.src = MASCOT_URL;
@@ -117,7 +117,6 @@ export class ChatPanel {
     this.composer = this.el('textarea', 'sir-scribbles-prompt');
     this.composer.placeholder = 'What are you working on?';
     this.composer.rows = 4;
-    this.composer.setAttribute('aria-label', 'Message to Kiro');
     this.composer.addEventListener('input', () => { this.model.setDraft(this.composer.value); this.renderControls(); });
     this.composer.addEventListener('keydown', event => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
@@ -313,6 +312,8 @@ export class ChatPanel {
     if (card.params.toolCall.rawInput == null) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Tool arguments were not supplied. Review the available details before deciding.'));
     if (!card.params.toolCall.locations?.length) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Affected paths not supplied.'));
     if (!card.params._meta?.kiro?.consent) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Working-directory / consent context not supplied.'));
+    if (card.unrecognized?.length) this.permissionArea.append(this.el('p', 'sir-scribbles-caption',
+      `Unrecognized approval metadata: ${card.unrecognized.join(', ')}. It is shown in the details below; your choice still applies once only.`));
     const details = this.el('details', 'sir-scribbles-permission-details');
     details.open = true;
     // Compact JSON preserves exact argument boundaries while avoiding a large
