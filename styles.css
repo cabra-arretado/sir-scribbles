@@ -71,6 +71,18 @@
 .sir-scribbles-markdown a { color: var(--link-color, var(--text-accent)); }
 .sir-scribbles-link-host { color: var(--text-faint); font-size: var(--font-ui-smaller); }
 
+/* While a reply streams: a soft dot trails the text (or stands alone before
+   the first words) and the copy row stays hidden until the reply settles. */
+.sir-scribbles-agent.is-streaming .sir-scribbles-message-meta { visibility: hidden; }
+.sir-scribbles-agent.is-streaming .sir-scribbles-markdown:empty::after,
+.sir-scribbles-agent.is-streaming .sir-scribbles-markdown > :last-child:is(p, h1, h2, h3, h4, h5, h6)::after,
+.sir-scribbles-agent.is-streaming .sir-scribbles-markdown > :last-child:is(ul, ol) > li:last-child:not(:has(> p))::after,
+.sir-scribbles-agent.is-streaming .sir-scribbles-markdown > :last-child:is(ul, ol) > li:last-child > p:last-child::after {
+  content: ''; display: inline-block; width: .55em; height: .55em; margin-left: .3em; border-radius: 50%;
+  background: var(--text-muted); vertical-align: baseline; animation: sir-scribbles-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .sir-scribbles-agent.is-streaming .sir-scribbles-markdown *::after, .sir-scribbles-agent.is-streaming .sir-scribbles-markdown:empty::after { animation: none !important; } }
+
 /* Tool activity collapses to a single muted line. */
 .sir-scribbles-tool { margin-bottom: var(--size-4-2); }
 .sir-scribbles-tool .sir-scribbles-message-meta { position: absolute; top: -4px; right: 0; margin: 0; }

@@ -6211,6 +6211,42 @@ function noteLinkTarget(href, encoded = false) {
     return null;
   }
 }
+function unclosed(text2, marker) {
+  const parts = text2.split(marker);
+  return parts.length % 2 === 0 && /^\S/.test(parts.at(-1));
+}
+function settleStreaming(source) {
+  let text2 = source;
+  let lastBreak = text2.lastIndexOf("\n");
+  let line = text2.slice(lastBreak + 1);
+  if (line.length < 16 && /^\s*(?:[-=*_#>+]+|\d+[.)])?\s*$/.test(line) || /^ {0,3}(?:```|~~~)/.test(line)) {
+    text2 = text2.slice(0, lastBreak + 1);
+  }
+  if ((text2.match(/^ {0,3}(?:```|~~~)/gm) ?? []).length % 2) return text2;
+  let end = text2.length;
+  while (end && "*_~` 	\n".includes(text2[end - 1])) end--;
+  text2 = text2.slice(0, end);
+  lastBreak = text2.lastIndexOf("\n");
+  line = text2.slice(lastBreak + 1);
+  const wiki = line.lastIndexOf("[[");
+  const target = line.lastIndexOf("](");
+  if (wiki >= 0 && !line.includes("]]", wiki) && line[wiki - 1] !== "!") {
+    const inner = line.slice(wiki + 2);
+    line = line.slice(0, wiki) + (inner.includes("|") ? inner.slice(inner.lastIndexOf("|") + 1) : "");
+  } else if (target >= 0 && !/[)\s]/.test(line.slice(target + 2))) {
+    const open = line.lastIndexOf("[", target);
+    if (open >= 0 && !line.slice(open + 1, target).includes("]")) line = line.slice(0, open) + line.slice(open + 1, target);
+  }
+  text2 = text2.slice(0, lastBreak + 1) + line;
+  const block2 = text2.slice(text2.lastIndexOf("\n\n") + 1);
+  let suffix = "";
+  if ((block2.match(/`/g) ?? []).length % 2) suffix += "`";
+  const prose = block2.replace(/`[^`]*`?/g, "");
+  if (unclosed(prose.replace(/\*\*/g, "").replace(/^[ \t]*\* /gm, ""), "*")) suffix += "*";
+  if (unclosed(prose, "**")) suffix += "**";
+  if (unclosed(prose, "~~")) suffix += "~~";
+  return text2 + suffix;
+}
 function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
   const document = container.ownerDocument;
   const fragment = document.createDocumentFragment();
@@ -6302,7 +6338,12 @@ ${href}` : href;
     }
   };
   append(markdown.parse(source, {}));
-  container.replaceChildren(fragment);
+  const previous = [...container.childNodes];
+  const next = [...fragment.childNodes];
+  let same = 0;
+  while (same < previous.length && same < next.length && previous[same].isEqualNode(next[same])) same++;
+  for (const node of previous.slice(same)) node.remove();
+  container.append(...next.slice(same));
 }
 
 // src/mascot.js
@@ -6335,6 +6376,13 @@ var ChatPanel = class {
     this.lastQueued = -1;
     this.lastSelection = void 0;
     this.lastPath = null;
+    this.streaming = /* @__PURE__ */ new Set();
+    this.frame = null;
+    this.lastFrame = 0;
+    this.paintAfter = 0;
+    this.initialized = false;
+    const view = this.document.defaultView;
+    this.animate = typeof view?.requestAnimationFrame === "function" && !view.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     this.build();
     this.listener = () => this.schedule();
     controller.on("change", this.listener);
@@ -6593,25 +6641,83 @@ var ChatPanel = class {
         this.transcript.append(root);
       }
       if (row.summary) row.summary.textContent = `${typeof message.data.title === "string" ? message.data.title : "Tool"} \xB7 ${typeof message.data.status === "string" ? message.data.status : "pending"}`;
-      if (message.text !== row.rendered) {
-        if (message.role === "agent") renderMarkdown(row.body, message.text, {
-          sourcePath: message.sourcePath,
-          openNote: this.actions.openNote ? async (...args) => {
-            try {
-              if (!this.disposed) await this.actions.openNote(...args);
-            } catch {
-              if (!this.disposed) {
-                this.model.error = "Could not open that note in this vault.";
-                this.model.changed();
-              }
-            }
-          } : void 0
-        });
-        else row.body.textContent = message.text;
+      if (message.role === "agent") this.updateReply(row, message);
+      else if (message.text !== row.rendered) {
+        row.body.textContent = message.text;
+        row.rendered = message.text;
       }
-      row.rendered = message.text;
     }
+    const last = this.model.messages.at(-1);
+    for (const [message, row] of this.rows) {
+      if (message.role === "agent") row.root.classList.toggle("is-streaming", this.streaming.has(row) || message === last && this.model.state === "working");
+    }
+    this.initialized = true;
     if (nearBottom) this.transcript.scrollTop = this.transcript.scrollHeight;
+  }
+  // Streamed text arrives in uneven bursts. Reveal it at a pace that follows
+  // the backlog: steady for small chunks, catching up quickly on large ones.
+  updateReply(row, message) {
+    if (row.target === message.text) return;
+    if (!message.text.startsWith(row.target ?? "")) row.shown = 0;
+    row.target = message.text;
+    row.message = message;
+    if (!this.animate || !this.initialized) {
+      row.shown = message.text.length;
+      this.paintReply(row);
+      return;
+    }
+    row.shown ??= 0;
+    this.streaming.add(row);
+    this.requestFrame();
+  }
+  paintReply(row) {
+    const text2 = row.message.text;
+    const visible = row.shown >= text2.length ? text2 : settleStreaming(text2.slice(0, row.shown));
+    if (visible === row.rendered) return;
+    renderMarkdown(row.body, visible, {
+      sourcePath: row.message.sourcePath,
+      openNote: this.actions.openNote ? async (...args) => {
+        try {
+          if (!this.disposed) await this.actions.openNote(...args);
+        } catch {
+          if (!this.disposed) {
+            this.model.error = "Could not open that note in this vault.";
+            this.model.changed();
+          }
+        }
+      } : void 0
+    });
+    row.rendered = visible;
+  }
+  requestFrame() {
+    if (this.frame || this.disposed || !this.streaming.size) return;
+    this.frame = this.document.defaultView.requestAnimationFrame((now) => {
+      this.frame = null;
+      if (this.disposed) return;
+      const elapsed = Math.min(now - (this.lastFrame || now - 16), 250);
+      const settle = this.model.state === "working" ? 250 : 80;
+      if (now < this.paintAfter) {
+        this.requestFrame();
+        return;
+      }
+      const pinned = this.transcript.scrollHeight - this.transcript.scrollTop - this.transcript.clientHeight < 80;
+      const started = performance.now();
+      for (const row of this.streaming) {
+        const total = row.message.text.length;
+        const backlog = total - row.shown;
+        row.shown = Math.min(total, row.shown + Math.max(Math.ceil(elapsed * 0.08), Math.ceil(backlog * (1 - Math.exp(-elapsed / settle)))));
+        this.paintReply(row);
+        if (row.shown >= total) {
+          this.streaming.delete(row);
+          row.root.classList.toggle("is-streaming", row.message === this.model.messages.at(-1) && this.model.state === "working");
+        }
+      }
+      this.paintAfter = now + (performance.now() - started) * 4;
+      this.lastFrame = now;
+      if (pinned) this.transcript.scrollTop = this.transcript.scrollHeight;
+      if (this.streaming.size) this.requestFrame();
+      else this.lastFrame = 0;
+    });
   }
   renderSelection() {
     const selection = this.model.selection;
@@ -6693,6 +6799,8 @@ var ChatPanel = class {
   dispose() {
     this.disposed = true;
     clearTimeout(this.timer);
+    if (this.frame) this.document.defaultView.cancelAnimationFrame?.(this.frame);
+    this.streaming.clear();
     this.model.off("change", this.listener);
     this.rows.clear();
     this.container.replaceChildren();
