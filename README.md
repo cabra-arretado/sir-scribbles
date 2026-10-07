@@ -11,9 +11,8 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
 ## Disclosures
 
 - **Runs an external program.** The plugin starts the Kiro CLI executable you
-  choose, only when you click **Start agent** or **Open a past chat**, or send
-  your first prompt. Each chat tab runs its own Kiro process (up to five at once).
-  It never installs, updates or downloads anything.
+  choose, only when you send your first prompt or click **Open a past chat**.
+  Each chat tab runs its own Kiro process (up to five at once). It never installs, updates or downloads anything.
 - **Requires a Kiro account.** Kiro needs its own login; the plugin stores no
   credentials and has no payment features.
 - **Network access through Kiro.** The plugin itself makes no network requests.
@@ -64,13 +63,14 @@ The executable path is now stored on this device per vault, not in the vault's
 ## Use the sidebar
 
 1. On first setup, enter the absolute path to your already installed Kiro executable.
-   The path is saved and reused; later chats show **Start agent** without asking
-   for the path again. Change it under **Settings → Community plugins → Sir Scribbles**
+   The path is saved when you first send or open a past chat, and later chats
+   don't ask for it again. Change it under **Settings → Community plugins → Sir Scribbles**
    if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
 2. Review the displayed vault directory. With a saved executable, sending your
-   first prompt starts ACP and sends after initialization succeeds. You can also
-   click **Start agent** first. Opening the sidebar or typing never starts a process.
+   first prompt starts ACP and sends after initialization succeeds, using the
+   agent's default model. Change the model from the composer once it appears.
+   Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
    To continue an earlier conversation, click **Open a past chat**. This starts
    Kiro and lists the chats it has kept for this vault, newest first. Choose one
