@@ -1,6 +1,7 @@
 import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
+import { displayPrompt } from './draft.js';
 
 const DECISIONS = { allow_once: 'Allow once', reject_once: 'Deny once', allow_always: 'Always allow', reject_always: 'Always deny' };
 
@@ -360,7 +361,7 @@ export class ChatPanel {
           meta.append(timestamp);
         }
         meta.append(this.iconButton('copy', 'Copy', async () => {
-          try { await this.actions.copyText(message.text); }
+          try { await this.actions.copyText(message.role === 'user' ? displayPrompt(message.text) : message.text); }
           catch { this.model.error = 'Could not copy. Select the text and copy it manually.'; this.model.changed(); }
         }, 'sir-scribbles-copy'));
         let body;
@@ -381,7 +382,7 @@ export class ChatPanel {
       }
       if (row.summary) row.summary.textContent = `${typeof message.data.title === 'string' ? message.data.title : 'Tool'} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
       if (message.role === 'agent') this.updateReply(row, message);
-      else if (message.text !== row.rendered) { row.body.textContent = message.text; row.rendered = message.text; }
+      else if (message.text !== row.rendered) { row.body.textContent = message.role === 'user' ? displayPrompt(message.text) : message.text; row.rendered = message.text; }
     }
     const last = this.model.messages.at(-1);
     for (const [message, row] of this.rows) {
