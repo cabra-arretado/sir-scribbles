@@ -54,7 +54,8 @@ test('HTML, remote-media syntax, terminal escapes and tool input render as inert
   model.update({ sessionUpdate: 'tool_call', toolCallId: 't', title: '<b>Run</b>', rawInput: { args: ['$(evil)', 'two words'] } });
   panel.render();
   assert.ok(root.textContent.includes(payload));
-  assert.equal(panel.transcript.querySelectorAll('img:not(.sir-scribbles-empty-mark), script, a, iframe, audio, video').length, 0);
+  // A bare web address may become a click-only link; nothing else is active.
+  assert.equal(panel.transcript.querySelectorAll('img:not(.sir-scribbles-empty-mark), script, a:not([href^="https://"]), iframe, audio, video').length, 0);
   assert.ok(root.textContent.includes('two words'));
 });
 
@@ -233,7 +234,8 @@ test('Markdown cannot execute HTML, load images or activate application links', 
   assert.equal(panel.transcript.querySelectorAll('script,img:not(.sir-scribbles-empty-mark),iframe,object,embed,svg').length, 0);
   assert.ok(root.textContent.includes('<script>alert(1)</script>'));
   assert.ok(root.textContent.includes('![image](https://never.test/image)'));
-  assert.equal(root.querySelectorAll('a[href]').length, 0);
+  // Only the bare web address in the escaped HTML becomes a click-only link.
+  assert.deepEqual([...root.querySelectorAll('a[href]')].map(a => a.getAttribute('href')), ['https://never.test/x']);
 });
 
 test('external links show their destination host and full address', t => {
