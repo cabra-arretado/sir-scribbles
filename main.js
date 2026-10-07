@@ -312,8 +312,8 @@ function inspectPermission(params) {
     return { supported: false, reason: "INVALID_PERMISSION" };
   }
   const call = params.toolCall;
-  if (typeof call.toolCallId !== "string" || !call.toolCallId || typeof call.title !== "string" || !call.title || typeof call.kind !== "string" || !Object.hasOwn(call, "rawInput") || call.rawInput === null) {
-    return { supported: false, reason: "MISSING_ACTION_DETAILS" };
+  if (typeof call.toolCallId !== "string" || !call.toolCallId || call.title != null && typeof call.title !== "string" || call.kind != null && typeof call.kind !== "string") {
+    return { supported: false, reason: "INVALID_ACTION_DETAILS" };
   }
   if (!Array.isArray(params.options) || !params.options.length) {
     return { supported: false, reason: "MISSING_OPTIONS" };
@@ -475,6 +475,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.startupUpdates = [];
     this.pending = /* @__PURE__ */ new Map();
     this.permissions = /* @__PURE__ */ new Map();
+    this.toolCalls = /* @__PURE__ */ new Map();
     this.seenPermissionIds = /* @__PURE__ */ new Set();
     this.nextId = 1;
     this.retainedBytes = 0;
@@ -567,7 +568,10 @@ var AcpSession = class extends import_node_events.EventEmitter {
       if (frame.method === "session/update") {
         if (!isRecord(frame.params) || !isRecord(frame.params.update)) throw new OperationalError("INVALID_UPDATE");
         if (this.state === "starting" && this.sessionId === null) this.startupUpdates.push(frame.params);
-        else if (frame.params.sessionId === this.sessionId) this.emit("update", frame.params.update);
+        else if (frame.params.sessionId === this.sessionId) {
+          this.rememberToolCall(frame.params.update);
+          this.emit("update", frame.params.update);
+        }
       }
       return;
     }
@@ -579,6 +583,17 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.pending.delete(frame.id);
     if (Object.hasOwn(frame, "error")) pending.reject(new OperationalError("AGENT_REQUEST_FAILED"));
     else pending.resolve(frame.result);
+  }
+  rememberToolCall(update) {
+    if (!["tool_call", "tool_call_update"].includes(update?.sessionUpdate) || typeof update.toolCallId !== "string") return;
+    const call = this.mergeToolCall(update, update.sessionUpdate === "tool_call" ? {} : this.toolCalls.get(update.toolCallId));
+    this.retain(Buffer.byteLength(JSON.stringify(call)));
+    this.toolCalls.set(update.toolCallId, call);
+  }
+  mergeToolCall(update, previous = {}) {
+    const call = { ...previous };
+    for (const [key, value] of Object.entries(update)) if (value != null) call[key] = value;
+    return call;
   }
   permission(id, params) {
     const key = idKey(id);
@@ -592,13 +607,14 @@ var AcpSession = class extends import_node_events.EventEmitter {
       this.reply(id, cancelledPermission());
       throw new OperationalError("PERMISSION_LIMIT");
     }
-    const inspected = inspectPermission(params);
+    const resolved = isRecord(params?.toolCall) ? { ...params, toolCall: this.mergeToolCall(params.toolCall, this.toolCalls.get(params.toolCall.toolCallId)) } : params;
+    const inspected = inspectPermission(resolved);
     if (!inspected.supported) {
       this.reply(id, cancelledPermission());
       this.emit("unsupported-permission", inspected.reason);
       return;
     }
-    const card = { id, params, options: inspected.options };
+    const card = { id, params: resolved, request: params, options: inspected.options };
     this.permissions.set(key, card);
     this.setState("waiting-for-approval");
     this.emit("permission", card);
@@ -671,6 +687,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
       this.fail(error.code);
       throw error;
     }
+    this.toolCalls.clear();
     this.setState("working");
     try {
       const response = await this.request("session/prompt", { sessionId: this.sessionId, prompt: [{ type: "text", text: text2 }] });
@@ -683,6 +700,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
       clearTimeout(this.stopTimer);
       this.stopTimer = null;
       this.cancelPermissions();
+      this.toolCalls.clear();
       if (!this.transportClosed) this.setState("ready");
     }
   }
@@ -710,6 +728,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
   }
   shutdown(state, code2) {
     this.cancelPermissions();
+    this.toolCalls.clear();
     this.transportClosed = true;
     clearTimeout(this.startupTimer);
     clearTimeout(this.stopTimer);
@@ -6600,14 +6619,15 @@ var ChatPanel = class {
     if (!card) return;
     this.permissionArea.append(
       this.el("p", "sir-scribbles-eyebrow", `YOUR DECISION \xB7 ${queued} queued`),
-      this.el("h3", "", card.params.toolCall.title),
-      this.el("p", "sir-scribbles-caption", `Kind: ${card.params.toolCall.kind} \xB7 Request ${card.id}`)
+      this.el("h3", "", card.params.toolCall.title || `Tool ${card.params.toolCall.toolCallId}`),
+      this.el("p", "sir-scribbles-caption", `Kind: ${card.params.toolCall.kind || "Not supplied"} \xB7 Request ${card.id}`)
     );
+    if (card.params.toolCall.rawInput == null) this.permissionArea.append(this.el("p", "sir-scribbles-caption", "Tool arguments were not supplied. Review the available details before deciding."));
     if (!card.params.toolCall.locations?.length) this.permissionArea.append(this.el("p", "sir-scribbles-caption", "Affected paths not supplied."));
     if (!card.params._meta?.kiro?.consent) this.permissionArea.append(this.el("p", "sir-scribbles-caption", "Working-directory / consent context not supplied."));
     const details = this.el("details", "sir-scribbles-permission-details");
     details.open = true;
-    details.append(this.el("summary", "", "Complete action details"), this.el("pre", "sir-scribbles-permission-input", JSON.stringify(card.params)));
+    details.append(this.el("summary", "", "Complete action details"), this.el("pre", "sir-scribbles-permission-input", JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
     this.permissionArea.append(details);
     const decisions = this.el("div", "sir-scribbles-decisions");
     for (const option of card.options) {

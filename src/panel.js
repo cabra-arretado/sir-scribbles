@@ -308,15 +308,16 @@ export class ChatPanel {
     this.permissionArea.hidden = !card;
     if (!card) return;
     this.permissionArea.append(this.el('p', 'sir-scribbles-eyebrow', `YOUR DECISION · ${queued} queued`),
-      this.el('h3', '', card.params.toolCall.title),
-      this.el('p', 'sir-scribbles-caption', `Kind: ${card.params.toolCall.kind} · Request ${card.id}`));
+      this.el('h3', '', card.params.toolCall.title || `Tool ${card.params.toolCall.toolCallId}`),
+      this.el('p', 'sir-scribbles-caption', `Kind: ${card.params.toolCall.kind || 'Not supplied'} · Request ${card.id}`));
+    if (card.params.toolCall.rawInput == null) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Tool arguments were not supplied. Review the available details before deciding.'));
     if (!card.params.toolCall.locations?.length) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Affected paths not supplied.'));
     if (!card.params._meta?.kiro?.consent) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Working-directory / consent context not supplied.'));
     const details = this.el('details', 'sir-scribbles-permission-details');
     details.open = true;
     // Compact JSON preserves exact argument boundaries while avoiding a large
     // whitespace expansion for deep agent-supplied structures.
-    details.append(this.el('summary', '', 'Complete action details'), this.el('pre', 'sir-scribbles-permission-input', JSON.stringify(card.params)));
+    details.append(this.el('summary', '', 'Complete action details'), this.el('pre', 'sir-scribbles-permission-input', JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
     this.permissionArea.append(details);
     const decisions = this.el('div', 'sir-scribbles-decisions');
     for (const option of card.options) {

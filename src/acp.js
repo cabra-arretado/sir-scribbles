@@ -69,6 +69,7 @@ export class AcpSession extends EventEmitter {
     this.startupUpdates = [];
     this.pending = new Map();
     this.permissions = new Map();
+    this.toolCalls = new Map();
     this.seenPermissionIds = new Set();
     this.nextId = 1;
     this.retainedBytes = 0;
@@ -146,7 +147,10 @@ export class AcpSession extends EventEmitter {
       if (frame.method === 'session/update') {
         if (!isRecord(frame.params) || !isRecord(frame.params.update)) throw new OperationalError('INVALID_UPDATE');
         if (this.state === 'starting' && this.sessionId === null) this.startupUpdates.push(frame.params);
-        else if (frame.params.sessionId === this.sessionId) this.emit('update', frame.params.update);
+        else if (frame.params.sessionId === this.sessionId) {
+          this.rememberToolCall(frame.params.update);
+          this.emit('update', frame.params.update);
+        }
       }
       return;
     }
@@ -161,6 +165,19 @@ export class AcpSession extends EventEmitter {
     else pending.resolve(frame.result);
   }
 
+  rememberToolCall(update) {
+    if (!['tool_call', 'tool_call_update'].includes(update?.sessionUpdate) || typeof update.toolCallId !== 'string') return;
+    const call = this.mergeToolCall(update, update.sessionUpdate === 'tool_call' ? {} : this.toolCalls.get(update.toolCallId));
+    this.retain(Buffer.byteLength(JSON.stringify(call)));
+    this.toolCalls.set(update.toolCallId, call);
+  }
+
+  mergeToolCall(update, previous = {}) {
+    const call = { ...previous };
+    for (const [key, value] of Object.entries(update)) if (value != null) call[key] = value;
+    return call;
+  }
+
   permission(id, params) {
     const key = idKey(id);
     if (this.seenPermissionIds.has(key)) throw new OperationalError('DUPLICATE_PERMISSION');
@@ -173,13 +190,16 @@ export class AcpSession extends EventEmitter {
       this.reply(id, cancelledPermission());
       throw new OperationalError('PERMISSION_LIMIT');
     }
-    const inspected = inspectPermission(params);
+    const resolved = isRecord(params?.toolCall)
+      ? { ...params, toolCall: this.mergeToolCall(params.toolCall, this.toolCalls.get(params.toolCall.toolCallId)) }
+      : params;
+    const inspected = inspectPermission(resolved);
     if (!inspected.supported) {
       this.reply(id, cancelledPermission());
       this.emit('unsupported-permission', inspected.reason);
       return;
     }
-    const card = { id, params, options: inspected.options };
+    const card = { id, params: resolved, request: params, options: inspected.options };
     this.permissions.set(key, card);
     this.setState('waiting-for-approval');
     this.emit('permission', card);
@@ -250,6 +270,7 @@ export class AcpSession extends EventEmitter {
     if (Buffer.byteLength(text) > this.limits.prompt) throw new OperationalError('PROMPT_LIMIT');
     try { this.retain(Buffer.byteLength(text)); }
     catch (error) { this.fail(error.code); throw error; }
+    this.toolCalls.clear();
     this.setState('working');
     try {
       const response = await this.request('session/prompt', { sessionId: this.sessionId, prompt: [{ type: 'text', text }] });
@@ -262,6 +283,7 @@ export class AcpSession extends EventEmitter {
       clearTimeout(this.stopTimer);
       this.stopTimer = null;
       this.cancelPermissions();
+      this.toolCalls.clear();
       if (!this.transportClosed) this.setState('ready');
     }
   }
@@ -285,6 +307,7 @@ export class AcpSession extends EventEmitter {
 
   shutdown(state, code) {
     this.cancelPermissions();
+    this.toolCalls.clear();
     this.transportClosed = true;
     clearTimeout(this.startupTimer);
     clearTimeout(this.stopTimer);

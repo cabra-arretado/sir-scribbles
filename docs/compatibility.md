@@ -42,8 +42,9 @@ not modify it. Kiro's hooks and native MCP servers may still initialize.
    client execution request receives `-32601` and executes nothing.
 5. Request a different harmless action that needs consent. Select its actual
    `reject_once` option ID. Independently verify it did not occur, inspect Kiro's
-   response, then continue the conversation. If supplied details are missing or
-   semantics unsupported, the spike cancels; do not weaken validation casually.
+   response, then continue the conversation. Partial requests must show earlier
+   details for the same tool-call ID, or identify missing arguments and wait for
+   a user decision. Unsupported consent semantics still cancel the request.
 6. Request an operation that waits on permission. Use `/stop`. Verify outstanding
    approvals settle as cancelled, new prompts remain blocked until the original
    prompt response settles, and cancellation does not become consent.

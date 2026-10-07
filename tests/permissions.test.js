@@ -19,12 +19,15 @@ test('offers only actual one-time IDs and preserves full request', () => {
   assert.deepEqual(params, original);
 });
 
-test('never approves missing action input or title', () => {
-  for (const key of ['rawInput', 'title', 'kind', 'toolCallId']) {
+test('partial tool details are supported but a tool ID is required', () => {
+  for (const key of ['rawInput', 'title', 'kind']) {
     const params = request();
     delete params.toolCall[key];
-    assert.equal(inspectPermission(params).supported, false);
+    assert.equal(inspectPermission(params).supported, true);
   }
+  const params = request();
+  delete params.toolCall.toolCallId;
+  assert.equal(inspectPermission(params).supported, false);
 });
 
 test('persistent-only, duplicate, unknown and extended options are unsupported', () => {

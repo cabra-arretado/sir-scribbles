@@ -4,18 +4,17 @@ const knownKinds = new Set(['allow_once', 'reject_once', 'allow_always', 'reject
 const consentKeys = new Set(['capability', 'resource', 'triggeringResource', 'workspaceRoot', 'persistableConsent']);
 const capabilities = new Set(['shell', 'read', 'write', 'fs_read', 'fs_write', 'mcp']);
 
-// This is deliberately conservative until actual V3 envelopes are validated.
-// Preserve the entire request, including metadata; never authorize from a title.
+// ACP permission tool calls are partial updates. Missing descriptive fields
+// must not suppress the user's decision; preserve metadata and offered IDs.
 export function inspectPermission(params) {
   if (!isRecord(params) || typeof params.sessionId !== 'string' || !isRecord(params.toolCall)) {
     return { supported: false, reason: 'INVALID_PERMISSION' };
   }
   const call = params.toolCall;
   if (typeof call.toolCallId !== 'string' || !call.toolCallId ||
-      typeof call.title !== 'string' || !call.title ||
-      typeof call.kind !== 'string' ||
-      !Object.hasOwn(call, 'rawInput') || call.rawInput === null) {
-    return { supported: false, reason: 'MISSING_ACTION_DETAILS' };
+      (call.title != null && typeof call.title !== 'string') ||
+      (call.kind != null && typeof call.kind !== 'string')) {
+    return { supported: false, reason: 'INVALID_ACTION_DETAILS' };
   }
   if (!Array.isArray(params.options) || !params.options.length) {
     return { supported: false, reason: 'MISSING_OPTIONS' };

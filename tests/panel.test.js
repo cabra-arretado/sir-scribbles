@@ -58,6 +58,22 @@ test('selection preview is complete and removable; replacement is explicit', asy
   assert.equal(panel.selectionArea.hidden, true);
 });
 
+test('ID-only permission shows fallback details and leaves the choice to the user', t => {
+  const { model, panel, root } = create(t);
+  const card = { id: 8, params: { toolCall: { toolCallId: 'replace' } }, options: [
+    { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+    { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+  ] };
+  model.session = { permissions: new Map([[8, card]]) };
+  model.state = 'waiting-for-approval';
+  panel.render();
+  assert.equal(panel.permissionArea.hidden, false);
+  assert.ok(root.textContent.includes('Tool replace'));
+  assert.ok(root.textContent.includes('Tool arguments were not supplied'));
+  assert.equal(root.querySelectorAll('.sir-scribbles-decisions button').length, 2);
+  assert.equal(model.session.permissions.size, 1);
+});
+
 test('one-time approval buttons use original IDs, omit persistent choices and reject stale cards', t => {
   const { model, panel, root } = create(t);
   const card = { id: 7, params: {

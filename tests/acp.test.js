@@ -236,6 +236,38 @@ test('failed cleanup remains explicitly uncertain', async t => {
   assert.deepEqual(await cleanup, ['uncertain']);
 });
 
+test('partial replace-string permission merges earlier details and waits for a user decision', async t => {
+  const session = create(t);
+  await session.start('/fixture');
+  session.setState('working');
+  const writes = [];
+  session.write = frame => writes.push(frame);
+  const update = toolCall => session.receive({ jsonrpc: '2.0', method: 'session/update', params: {
+    sessionId: session.sessionId, update: toolCall,
+  } }, 100);
+  update({ sessionUpdate: 'tool_call', toolCallId: 'replace', title: 'Replace string', kind: 'edit', rawInput: { path: 'note.md', old_str: 'before', new_str: 'after' } });
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'replace', rawInput: null, status: 'pending' });
+  const params = { sessionId: session.sessionId, toolCall: { toolCallId: 'replace', title: 'Replace selected string' }, options: [
+    { optionId: 'accept', name: 'Allow', kind: 'allow_once' },
+    { optionId: 'reject', name: 'Deny', kind: 'reject_once' },
+  ] };
+  session.permission('replace-request', params);
+  const card = [...session.permissions.values()][0];
+  assert.equal(card.params.toolCall.kind, 'edit');
+  assert.equal(card.params.toolCall.title, 'Replace selected string');
+  assert.equal(card.params.toolCall.rawInput.new_str, 'after');
+  assert.equal(card.request, params);
+  assert.equal(params.toolCall.rawInput, undefined);
+  assert.equal(writes.length, 0);
+  assert.equal(session.state, 'waiting-for-approval');
+  assert.equal(session.decide(card.id, 'accept'), true);
+  assert.deepEqual(writes[0].result, { outcome: { outcome: 'selected', optionId: 'accept' } });
+  // An ID-only request without prior details must also be shown, never auto-approved.
+  session.permission('unknown-request', { ...params, toolCall: { toolCallId: 'unknown' } });
+  assert.equal(session.permissions.size, 1);
+  assert.equal(writes.length, 1);
+});
+
 test('unsupported permission cancels with no available card', async t => {
   const session = create(t);
   await session.start('/fixture');
@@ -246,10 +278,10 @@ test('unsupported permission cancels with no available card', async t => {
   const unsupported = once(session, 'unsupported-permission');
   session.permission('incomplete', {
     sessionId: session.sessionId,
-    toolCall: { toolCallId: 'no-input', title: 'Friendly title', kind: 'execute' },
+    toolCall: { title: 'Friendly title', kind: 'execute' },
     options: [{ optionId: 'yes', name: 'Yes', kind: 'allow_once' }],
   });
-  assert.deepEqual(await unsupported, ['MISSING_ACTION_DETAILS']);
+  assert.deepEqual(await unsupported, ['INVALID_ACTION_DETAILS']);
   assert.deepEqual(sent[0].result, { outcome: { outcome: 'cancelled' } });
   assert.equal(session.permissions.size, 0);
 });

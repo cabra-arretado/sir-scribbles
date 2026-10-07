@@ -81,11 +81,14 @@ semantics. The same distinction applies to client-method rejection tests.
 
 ## Consent adapter limitations
 
-The initial spike requires a tool ID, title, kind and non-null raw input in the
-permission request itself. It does not merge incomplete permission payloads with
-previous tool updates. ACP permits partial tool-call updates, so real Kiro may
-produce requests this spike conservatively cancels. Inspect observed envelopes
-and specify a tested lossless merge if needed before relaxing this gate.
+Permission requests may contain partial tool-call updates, as specified by
+[ACP](https://agentclientprotocol.com/protocol/v1/tool-calls). The client merges
+non-null fields with earlier updates for the same tool-call ID in the current
+turn. Request fields override cached fields. The cache is session-local, bounded
+by the session budget and cleared between turns. Original request metadata and
+resolved tool details are shown together. Missing title, kind or arguments no
+longer cancel the request: the UI uses a fallback title and explicitly identifies
+missing arguments, leaving the one-time decision to the user.
 
 Only `allow_once` and `reject_once` choices are actionable, using original IDs.
 Persistent choices never receive an alternate one-time label. Known Kiro consent

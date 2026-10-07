@@ -77,7 +77,9 @@ Keep `data.json` to preserve the saved executable path. Restart Obsidian and ena
    are supported. Cmd/Ctrl+click opens a new tab. Relative paths use the note
    attached or active when the prompt was sent, even if you switch notes later.
 5. Review the complete JSON action details before choosing an offered one-time
-   Allow or Deny option. Missing/unsupported consent details cancel the request.
+   Allow or Deny option. Partial requests use earlier details from the same tool
+   call; missing arguments are identified in the approval card. Unsupported
+   consent semantics still cancel the request.
    Existing Kiro policy may allow actions without asking the sidebar.
 6. **Stop** requests cancellation and disables approvals. **Force stop Kiro**
    becomes available after five seconds if the turn is still unsettled.
