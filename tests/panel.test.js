@@ -41,7 +41,7 @@ test('opening panel never starts the agent and initial controls express state', 
   const { panel, root, model } = create(t);
   assert.equal(model.session, null);
   assert.equal(panel.status.textContent, 'Not started');
-  assert.equal(panel.browse.disabled, false);
+  assert.equal(panel.start.disabled, false);
   assert.equal(panel.send.disabled, true);
   assert.equal(panel.stop.hidden, true);
   assert.ok(root.textContent.includes('Kiro CLI (V3) is currently the only supported agent'));
@@ -246,47 +246,19 @@ test('external links show their destination host and full address', t => {
   assert.equal(plain.nextSibling?.className ?? '', '');
 });
 
-test('New chat invalidates a first Send awaiting settings save', async t => {
-  const { model, panel, dom } = create(t);
+test('New chat invalidates a Start awaiting settings save', async t => {
+  const { model, panel } = create(t);
   let finishSave;
-  let saves = 0;
-  let sends = 0;
+  let starts = 0;
   panel.actions.getPath = () => '';
-  panel.actions.savePath = () => { saves++; return new Promise(resolve => { finishSave = resolve; }); };
-  model.send = () => { sends++; };
-  panel.path.value = '/fixture/typed-kiro';
-  panel.path.dispatchEvent(new dom.window.Event('input'));
-  panel.composer.value = 'first question';
-  panel.composer.dispatchEvent(new dom.window.Event('input'));
-  assert.equal(panel.send.disabled, false);
-  panel.send.click();
-  panel.send.click();
-  assert.equal(saves, 1);
+  panel.actions.savePath = () => new Promise(resolve => { finishSave = resolve; });
+  model.start = () => { starts++; };
+  panel.start.click();
   await model.newChat();
   finishSave();
   await tick();
-  assert.equal(sends, 0);
-  assert.equal(panel.browse.disabled, false);
-});
-
-test('first Send saves a typed executable, then starts with it', async t => {
-  const { model, panel, dom } = create(t);
-  let saved = '';
-  const sent = [];
-  panel.actions.getPath = () => saved;
-  panel.actions.savePath = async path => { saved = path; };
-  model.send = path => sent.push(path);
-  panel.path.value = '';
-  panel.composer.value = 'first question';
-  panel.composer.dispatchEvent(new dom.window.Event('input'));
-  assert.equal(panel.send.disabled, true);
-  panel.path.value = '/fixture/typed-kiro';
-  panel.path.dispatchEvent(new dom.window.Event('input'));
-  assert.equal(panel.send.disabled, false);
-  panel.send.click();
-  await tick();
-  assert.equal(saved, '/fixture/typed-kiro');
-  assert.deepEqual(sent, ['/fixture/typed-kiro']);
+  assert.equal(starts, 0);
+  assert.equal(panel.start.disabled, false);
 });
 
 test('saved executable starts without reconfirmation and settings changes take effect', async t => {
@@ -295,15 +267,15 @@ test('saved executable starts without reconfirmation and settings changes take e
   const starts = [];
   panel.actions.getPath = () => saved;
   panel.actions.savePath = () => assert.fail('saved path should not be saved again');
-  model.browse = async path => { starts.push(path); };
+  model.start = async path => { starts.push(path); };
   panel.render();
   assert.equal(panel.path.hidden, true);
   panel.path.value = '/ignored/stale-input';
-  panel.browse.click();
+  panel.start.click();
   await tick();
   saved = '/fixture/new-kiro';
   panel.render();
-  panel.browse.click();
+  panel.start.click();
   await tick();
   assert.deepEqual(starts, ['/fixture/kiro', '/fixture/new-kiro']);
 });
@@ -319,7 +291,6 @@ test('first Send is enabled with a saved executable and forwards it without star
   panel.composer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter' }));
   assert.deepEqual(sent, ['/fixture/kiro']);
   panel.actions.getPath = () => '';
-  panel.path.value = '';
   panel.render();
   assert.equal(panel.send.disabled, true);
 });
