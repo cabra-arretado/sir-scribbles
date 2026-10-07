@@ -118,6 +118,28 @@ from the agent each time you open the list. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain
 outside the plugin's control. The vault directory is context, not a sandbox.
 
+## Help your agent write clickable links
+
+The plugin does not add instructions to your prompts. To have the agent write
+links the sidebar can open, paste this into the instruction file your agent
+reads from the vault root (for example `AGENTS.md`, `CLAUDE.md` or a Kiro
+steering file). Replace the ticket URLs with your own tracker's.
+
+```markdown
+## Replying in Sir Scribbles (Obsidian sidebar)
+
+Replies are shown as Markdown in an Obsidian sidebar. Write links so they can be clicked:
+
+- **Notes:** use wikilinks with paths relative to the vault root: `[[Projects/Launch notes|Launch notes]]`.
+  - Link to a heading with `[[Note#Heading]]` and to a block with `[[Note#^block-id]]`.
+  - Inside a table, escape the pipe: `[[Note\|Label]]`.
+  - Markdown links also work, but encode spaces: `[Launch notes](Projects/Launch%20notes.md)`.
+- **Web pages:** always write the full `https://` address, e.g. `[Docs](https://example.com/docs)`. `example.com` without `https://` stays plain text.
+- **Tickets and PRs:** link to them, never just the ID: `[PROJ-123](https://yourcompany.atlassian.net/browse/PROJ-123)`, `[owner/repo#42](https://github.com/owner/repo/pull/42)`.
+- **Not supported:** images, `![[embeds]]` and raw HTML appear as plain text. Paths outside this vault can't be opened.
+- Name notes by their vault path so the user can open them, e.g. `[[Daily/2026-10-07]]`, not "today's note".
+```
+
 ## Install/authenticate Kiro separately
 
 The [official download page](https://kiro.dev/downloads/) provides this command:
