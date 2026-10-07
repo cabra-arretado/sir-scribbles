@@ -24,6 +24,14 @@ export const ERROR_TEXT = {
   PROCESS_FAILED: 'The agent could not start. Check the executable, its login and installation.',
   CONFIG_REJECTED: 'The agent did not change the model. It keeps the previous one.',
   CONFIG_VALUE_UNKNOWN: 'The agent no longer offers that model. Choose another one.',
+  HISTORY_NOT_SUPPORTED: 'This agent cannot list past chats. Start a new chat instead.',
+  HISTORY_UNAVAILABLE: 'The agent could not list past chats. Try again, or start a new chat.',
+  LOAD_NOT_SUPPORTED: 'This agent cannot reopen past chats. Start a new chat instead.',
+};
+// One line, short enough for a tab.
+const titleOf = text => {
+  const line = text.split('\n').map(part => part.trim()).find(Boolean) ?? '';
+  return line.length > 48 ? `${line.slice(0, 47)}…` : line;
 };
 export const errorText = code => ERROR_TEXT[code] ?? `The agent stopped (${code || 'UNKNOWN_ERROR'}). The previous task outcome may be uncertain. Start a new chat.`;
 
@@ -53,6 +61,9 @@ export class ChatController extends EventEmitter {
     this.disposed = false;
     this.resetting = false;
     this.uiBytes = 0;
+    this.title = '';
+    this.history = null; // { pending } | { entries } | { error } while choosing a chat.
+    this.loading = false; // Replaying a past chat: its messages have no local time.
   }
   changed() { this.emit('change'); }
   setDraft(text) { this.draft = text; } // Typing never launches or recreates the composer.
@@ -72,7 +83,8 @@ export class ChatController extends EventEmitter {
   activePermission() { return this.session?.permissions.values().next().value ?? null; }
   setError(code) { this.error = errorText(code); this.changed(); }
 
-  async start(executable) {
+  // Launches the agent and initializes it, without opening a chat yet.
+  async connect(executable) {
     if (this.disposed || this.resetting || this.state !== 'not-started' || this.session) return;
     const generation = ++this.generation;
     this.state = 'starting';
@@ -112,11 +124,10 @@ export class ChatController extends EventEmitter {
           this.changed();
         }
       });
-      const initialized = await session.start(this.cwd);
+      const initialized = await session.connect();
       if (live()) {
         this.identity = [initialized.identity?.title ?? initialized.identity?.name, initialized.identity?.version]
           .filter(value => typeof value === 'string').join(' · ');
-        this.configOptions = initialized.configOptions ?? [];
         this.changed();
       }
     } catch (error) {
@@ -124,6 +135,53 @@ export class ChatController extends EventEmitter {
         this.state = this.session ? 'failed' : 'not-started';
         this.setError(error.code || 'PROCESS_FAILED');
       }
+    }
+  }
+
+  async start(executable) {
+    await this.connect(executable);
+    if (this.state === 'connected') await this.open();
+  }
+
+  // Lists this vault's past chats so the user can reopen one. Starts the
+  // agent when needed; the chat itself is opened only on a choice.
+  async browse(executable = '') {
+    if (this.disposed || this.resetting || this.history?.pending) return;
+    if (this.state === 'not-started') {
+      if (!executable) return;
+      await this.connect(executable);
+    }
+    if (this.state !== 'connected' || this.disposed || this.resetting) return;
+    const session = this.session;
+    const generation = this.generation;
+    this.history = { pending: true };
+    this.error = '';
+    this.changed();
+    let history;
+    try { history = { entries: await session.listSessions(this.cwd) }; }
+    catch (error) { history = { error: errorText(error.code) }; }
+    if (generation !== this.generation || this.disposed || this.state !== 'connected') return;
+    this.history = history;
+    this.changed();
+  }
+
+  // Opens a new chat, or reopens a past one by its session ID.
+  async open(sessionId = null, title = '') {
+    if (this.disposed || this.resetting || this.state !== 'connected' || this.history?.pending) return;
+    const session = this.session;
+    const generation = this.generation;
+    const live = () => !this.disposed && generation === this.generation;
+    this.loading = Boolean(sessionId);
+    if (sessionId) this.title = title;
+    this.error = '';
+    this.changed();
+    try {
+      const opened = await session.open(this.cwd, sessionId);
+      if (live()) { this.history = null; this.configOptions = opened.configOptions ?? []; }
+    } catch (error) {
+      if (live()) { this.state = 'failed'; this.setError(error.code || 'START_FAILED'); }
+    } finally {
+      if (live()) { this.loading = false; this.changed(); }
     }
   }
 
@@ -139,12 +197,19 @@ export class ChatController extends EventEmitter {
   }
 
   update(update) {
-    if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text' && typeof update.content.text === 'string') {
+    const kind = update.sessionUpdate;
+    // Agents send the user's side only when replaying a past chat.
+    const role = kind === 'agent_message_chunk' ? 'agent' : kind === 'user_message_chunk' && this.loading ? 'user' : '';
+    if (role && update.content?.type === 'text' && typeof update.content.text === 'string') {
       const text = update.content.text;
       if (!this.retainUi(Buffer.byteLength(text))) return;
       const last = this.messages.at(-1);
-      if (last?.role === 'agent') last.text += text;
-      else this.messages.push({ role: 'agent', text, timestamp: Date.now(), sourcePath: this.turnSourcePath });
+      const messageId = typeof update.messageId === 'string' ? update.messageId : undefined;
+      if (last?.role === role && last.messageId === messageId) last.text += text;
+      else this.messages.push({ role, text, messageId, timestamp: this.loading ? null : Date.now(), sourcePath: this.turnSourcePath });
+      if (role === 'user' && !this.title) this.title = titleOf(text);
+    } else if (kind === 'session_info_update' && typeof update.title === 'string' && update.title.trim()) {
+      this.title = titleOf(update.title);
     } else if (['tool_call', 'tool_call_update'].includes(update.sessionUpdate) && typeof update.toolCallId === 'string') {
       const previous = this.tools.get(update.toolCallId);
       const data = mergeDefined(mergeDefined({}, previous?.data ?? {}), update);
@@ -155,7 +220,7 @@ export class ChatController extends EventEmitter {
       if (!this.retainUi(Buffer.byteLength(text))) return;
       if (previous) { previous.data = data; previous.text = text; }
       else {
-        const entry = { role: 'tool', data, text, timestamp: Date.now() };
+        const entry = { role: 'tool', data, text, timestamp: this.loading ? null : Date.now() };
         this.tools.set(update.toolCallId, entry);
         this.messages.push(entry);
       }
@@ -164,7 +229,7 @@ export class ChatController extends EventEmitter {
   }
 
   async send(executable = '') {
-    if (this.resetting || this.disposed || this.configPending || !['not-started', 'ready'].includes(this.state)) return;
+    if (this.resetting || this.disposed || this.configPending || this.history?.pending || !['not-started', 'connected', 'ready'].includes(this.state)) return;
     if (this.state === 'not-started' && !executable) return;
     let prompt;
     try { prompt = composePrompt(this.draft, this.selection, this.file); }
@@ -173,8 +238,9 @@ export class ChatController extends EventEmitter {
     const originalSelection = this.selection;
     const originalFile = this.file;
     const sourcePath = this.selection?.path ?? this.file?.path ?? this.getSourcePath();
-    if (this.state === 'not-started') {
-      const starting = this.start(executable);
+    if (this.state !== 'ready') {
+      // A typed prompt while choosing a past chat starts a new one.
+      const starting = this.state === 'connected' ? this.open() : this.start(executable);
       const startupGeneration = this.generation;
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== 'ready') return;
@@ -188,6 +254,7 @@ export class ChatController extends EventEmitter {
     const generation = this.generation;
     if (!this.retainUi(Buffer.byteLength(prompt))) return;
     this.turnSourcePath = sourcePath;
+    if (!this.title) this.title = titleOf(originalDraft) || titleOf(sourcePath);
     this.messages.push({ role: 'user', text: prompt, timestamp: Date.now() });
     // Preserve a failure snapshot in the user entry; retain the composer draft
     // until successful settlement and never overwrite a newer draft.
@@ -234,7 +301,9 @@ export class ChatController extends EventEmitter {
     catch (error) { this.session.fail(error.code || 'WRITE_FAILED'); return false; }
   }
   stop() {
-    if (this.state === 'starting' && !this.session) {
+    if (this.state === 'connected') {
+      void this.newChat(); // No chat is open yet: end the agent instead.
+    } else if (this.state === 'starting' && !this.session) {
       ++this.generation;
       this.state = 'not-started';
       this.changed();
@@ -286,6 +355,9 @@ export class ChatController extends EventEmitter {
     this.error = '';
     this.cleanup = '';
     this.uiBytes = 0;
+    this.title = '';
+    this.history = null;
+    this.loading = false;
     this.forceAvailable = false;
     this.resetting = false;
     this.state = 'not-started';

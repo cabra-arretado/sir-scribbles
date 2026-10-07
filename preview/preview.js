@@ -1,9 +1,12 @@
-import { ChatPanel } from '../src/panel.js';
+import { ChatTabs, TabbedPanel } from '../src/tabs.js';
 
 // Development-only UI fixtures. Not bundled into the Obsidian plugin.
 class Fixture {
-  constructor() { this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.identity = ''; this.error = ''; this.configOptions = []; this.configPending = false; this.session = { permissions: new Map() }; }
+  constructor() { this.title = ''; this.history = null; this.loading = false; this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.identity = ''; this.error = ''; this.configOptions = []; this.configPending = false; this.session = { permissions: new Map() }; }
   on(event, fn) { this.listeners.add(fn); }
+  removeAllListeners() { this.listeners.clear(); }
+  async dispose() { this.removeAllListeners(); return true; }
+  recoverCleanup() {}
   off(event, fn) { this.listeners.delete(fn); }
   changed() { for (const fn of this.listeners) fn(); }
   setDraft(text) { this.draft = text; }
@@ -18,9 +21,21 @@ class Fixture {
     this.configPending = true; this.changed();
     setTimeout(() => { this.configOptions = models(value); this.configPending = false; this.changed(); }, 400);
   }
+  browse() {
+    this.state = 'connected'; this.identity = 'Agent · UI fixture'; this.history = { pending: true }; this.changed();
+    setTimeout(() => { this.history = { entries: PAST }; this.changed(); }, 500);
+  }
+  open(sessionId, title) {
+    this.history = null;
+    if (!sessionId) { this.start(); return; }
+    this.title = title; this.messages = [{ role: 'user', text: 'Draft three options for the launch announcement.', timestamp: null }, { role: 'agent', text: 'Here are three directions:\n\n1. **Quiet confidence** — lead with the problem.\n2. **Show, don\'t tell** — a short demo clip.\n3. **Founder note** — why we built it.', timestamp: null }];
+    this.start();
+  }
   start() { this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.configOptions = models('auto'); this.changed(); }
-  newChat() { this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
+  newChat() { this.title = ''; this.history = null; this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
   send() {
+    if (this.state === 'connected') this.start();
+    if (!this.title) this.title = (this.draft || 'Selection').split('\n')[0].slice(0, 48);
     this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' });
     this.draft = ''; this.selection = null; this.file = null; this.state = 'working'; this.changed();
     // Replay a reply in uneven bursts, the way a real agent streams.
@@ -39,6 +54,11 @@ class Fixture {
   decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId === 'allow' ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
+const PAST = [
+  { sessionId: 'a', title: 'Launch announcement options', updatedAt: Date.now() - 36e5 * 5 },
+  { sessionId: 'b', title: 'Summarize research interviews', updatedAt: Date.now() - 864e5 * 3 },
+  { sessionId: 'c', title: '', updatedAt: Date.now() - 864e5 * 20 },
+];
 const models = current => [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
   { value: 'auto', name: 'Auto', description: 'Picks a model for each task' },
   { value: 'claude-sonnet', name: 'Claude Sonnet', group: 'Claude' },
@@ -57,14 +77,17 @@ const ICONS = {
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 };
 const setIcon = (node, name) => { node.innerHTML = `<svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] ?? ''}</svg>`; };
-const model = new Fixture();
+const tabs = new ChatTabs(() => new Fixture());
+tabs.add();
+let model = tabs.active;
+tabs.on('change', () => { model = tabs.active; });
 const selection = { path: 'Projects/Launch notes.md', from: 7, to: 7, text: 'Give the user a clear starting point, let them choose the context, and keep every action visible.' };
-const panel = new ChatPanel(document.getElementById('panel'), model, {
+const panel = new TabbedPanel(document.getElementById('panel'), tabs, {
   setIcon,
   getPath: () => '/Users/you/.local/bin/agent', savePath: async () => {}, attachSelection: () => selection,
   attachFile: () => ({ kind: 'file', path: selection.path }),
   openNote: target => { model.error = `Preview note link: ${typeof target === 'string' ? target : target.path}. No vault is open in this fixture.`; model.changed(); },
-  confirmReset: async () => window.confirm('Discard this preview chat?'), copyText: text => navigator.clipboard.writeText(text),
+  confirmClose: async () => window.confirm('Close this preview chat?'), copyText: text => navigator.clipboard.writeText(text),
 });
 document.getElementById('initial').onclick = () => model.newChat();
 document.getElementById('conversation').onclick = () => {

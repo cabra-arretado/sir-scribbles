@@ -6,7 +6,8 @@ import { readFile } from 'node:fs/promises';
 const routes = new Map([
   ['/', async () => ['text/html', await readFile('preview/index.html')]],
   ['/preview.js', async () => {
-    const result = await build({ entryPoints: ['preview/preview.js'], bundle: true, format: 'esm', platform: 'browser', write: false });
+    const result = await build({ entryPoints: ['preview/preview.js'], bundle: true, format: 'esm', platform: 'browser', write: false,
+      alias: { 'node:events': './preview/events.js' } });
     return ['text/javascript', result.outputFiles[0].contents];
   }],
   ['/styles.css', async () => ['text/css', await readFile('styles.css')]],

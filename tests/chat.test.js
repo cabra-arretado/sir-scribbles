@@ -8,7 +8,8 @@ import { FrameReader } from '../src/acp.js';
 
 class Session extends EventEmitter {
   constructor() { super(); this.permissions = new Map(); this.sent = []; this.retainedBytes = 0; }
-  async start() { this.emit('state', 'ready'); return { identity: { name: 'fixture', version: '3' } }; }
+  async connect() { this.emit('state', 'connected'); return { identity: { name: 'fixture', version: '3' } }; }
+  async open(cwd, sessionId) { this.opened = sessionId; this.emit('state', 'ready'); return { configOptions: this.configOptions ?? [] }; }
   prompt(text) {
     this.sent.push(text);
     this.emit('state', 'working');
@@ -313,7 +314,7 @@ const modelOptions = current => [
 
 test('model choice comes from the agent, changes between turns and resets with a new chat', async () => {
   const { controller, session } = create();
-  session.start = async () => { session.emit('state', 'ready'); return { identity: { name: 'fixture' }, configOptions: modelOptions('auto') }; };
+  session.configOptions = modelOptions('auto');
   const requests = [];
   let settle;
   session.setConfigOption = (id, value) => {
@@ -344,7 +345,7 @@ test('model choice comes from the agent, changes between turns and resets with a
 
 test('a rejected model change reports an error and keeps the session ready', async () => {
   const { controller, session } = create();
-  session.start = async () => { session.emit('state', 'ready'); return { configOptions: modelOptions('auto') }; };
+  session.configOptions = modelOptions('auto');
   session.setConfigOption = async () => { throw new OperationalError('CONFIG_REJECTED'); };
   await controller.start('/fixture');
   await controller.setModel('opus');
@@ -352,4 +353,54 @@ test('a rejected model change reports an error and keeps the session ready', asy
   assert.equal(controller.state, 'ready');
   assert.equal(controller.configPending, false);
   assert.equal(controller.modelOption().currentValue, 'auto');
+});
+
+test('browsing lists past chats without opening one; choosing one replays it without local times', async () => {
+  const { controller, session, launches } = create();
+  session.listSessions = async cwd => [{ sessionId: 'old', title: 'Older chat', updatedAt: 1, cwd }];
+  session.open = async (cwd, sessionId) => {
+    session.opened = sessionId;
+    session.emit('state', 'starting');
+    for (const update of [
+      { sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Earlier ' } },
+      { sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'question' } },
+      { sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: 'First' } },
+      { sessionUpdate: 'agent_message_chunk', messageId: 'a2', content: { type: 'text', text: 'Second' } },
+      { sessionUpdate: 'tool_call', toolCallId: 't', title: 'Read' },
+    ]) session.emit('update', update);
+    session.emit('state', 'ready');
+    return { configOptions: [] };
+  };
+  await controller.browse('/fixture');
+  assert.equal(launches(), 1);
+  assert.equal(controller.state, 'connected');
+  assert.equal(session.opened, undefined);
+  assert.deepEqual(controller.history.entries.map(entry => entry.sessionId), ['old']);
+  await controller.open('old', 'Older chat');
+  assert.equal(session.opened, 'old');
+  assert.equal(controller.state, 'ready');
+  assert.equal(controller.history, null);
+  assert.equal(controller.title, 'Older chat');
+  assert.deepEqual(controller.messages.map(message => [message.role, message.text ?? '', message.timestamp]),
+    [['user', 'Earlier question', null], ['agent', 'First', null], ['agent', 'Second', null], ['tool', controller.messages[3].text, null]]);
+  // Live user echoes are ignored: the client already shows the sent prompt.
+  controller.update({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'echo' } });
+  assert.equal(controller.messages.length, 4);
+});
+
+test('a listing failure is shown in the picker; typing a prompt there starts a new chat', async () => {
+  const { controller, session } = create();
+  session.listSessions = async () => { throw new OperationalError('HISTORY_NOT_SUPPORTED'); };
+  await controller.browse('/fixture');
+  assert.match(controller.history.error, /cannot list past chats/);
+  controller.setDraft('Plan the launch\nwith details');
+  const sending = controller.send('/fixture');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(session.opened, null);
+  assert.deepEqual(session.sent, ['Plan the launch\nwith details']);
+  assert.equal(controller.title, 'Plan the launch');
+  session.complete();
+  await sending;
+  session.emit('update', { sessionUpdate: 'session_info_update', title: 'Agent title' });
+  assert.equal(controller.title, 'Agent title');
 });

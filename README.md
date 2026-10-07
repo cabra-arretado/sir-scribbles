@@ -11,8 +11,9 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
 ## Disclosures
 
 - **Runs an external program.** The plugin starts the Kiro CLI executable you
-  choose, only when you click **Start agent** or send your first prompt. It never
-  installs, updates or downloads anything.
+  choose, only when you click **Start agent** or **Open a past chat**, or send
+  your first prompt. Each chat tab runs its own Kiro process (up to five at once).
+  It never installs, updates or downloads anything.
 - **Requires a Kiro account.** Kiro needs its own login; the plugin stores no
   credentials and has no payment features.
 - **Network access through Kiro.** The plugin itself makes no network requests.
@@ -21,8 +22,9 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
   write or run anything its own permissions allow, including outside the vault.
   Actions Kiro asks about appear in the sidebar for approval; actions already
   allowed by Kiro's configuration may run without asking.
-- **No telemetry or ads.** Conversations are kept in memory only. The only saved
-  setting is the executable path, stored on this device.
+- **No telemetry or ads.** The plugin keeps conversations in memory only. Kiro
+  keeps its own chat history; **Open a past chat** asks Kiro for it. The only
+  saved setting is the executable path, stored on this device.
 
 ## Build and install
 
@@ -70,6 +72,11 @@ The executable path is now stored on this device per vault, not in the vault's
    first prompt starts ACP and sends after initialization succeeds. You can also
    click **Start agent** first. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
+   To continue an earlier conversation, click **Open a past chat**. This starts
+   Kiro and lists the chats it has kept for this vault, newest first. Choose one
+   to reopen it with its history, or **Start a new chat**. Reopened messages show
+   no time, because the agent does not send one. Typing a prompt in the list
+   starts a new chat. Agents that cannot list or reopen chats say so here.
 3. Type a prompt. Select text in a Markdown editor and click **+ Selection**
    to capture only that text, with its relative note path and line range. Inspect,
    replace or remove the snapshot before sending. Changes to the note do not
@@ -93,19 +100,23 @@ The executable path is now stored on this device per vault, not in the vault's
    Existing Kiro policy may allow actions without asking the sidebar.
 6. **Stop** requests cancellation and disables approvals. **Force stop agent**
    becomes available after five seconds if the turn is still unsettled.
-7. **New chat** confirms discarding content, ends the process, then returns to
-   Start. Closing the panel or unloading the plugin discards client content and
-   stops the owned process group. Uncertain cleanup stays visible and prevents
-   starting another process until recovery succeeds.
+7. Chats open in tabs at the top of the sidebar. **+** opens another chat, up to
+   five; each has its own Kiro process, model, approvals and status dot, and keeps
+   running while you look at another tab. Closing a tab confirms discarding its
+   content, ends its process and keeps Kiro's own history, so it can be reopened
+   later. Closing the panel or unloading the plugin discards client content and
+   stops every owned process group. A tab whose cleanup is uncertain stays open
+   with **Force stop agent** until recovery succeeds.
 
 On a normal Obsidian quit, the plugin registers an awaited cleanup task: it ends
 ACP, sends SIGTERM to its owned process group, and escalates to SIGKILL after two
-seconds if needed. The conversation is discarded; reopening creates a fresh
-session. Crashes, force quits, and descendants that detach from the process group
+seconds if needed. Each conversation is discarded from the sidebar; reopening
+the sidebar starts with one fresh tab. Crashes, force quits, and descendants that detach from the process group
 cannot be guaranteed to clean up.
 
 Only the executable path is saved, in this device's local storage. The plugin does not archive
-prompts, attachments, transcripts, session IDs or tool details. Kiro/provider
+prompts, attachments, transcripts, session IDs or tool details. Past chats come
+from the agent each time you open the list. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain
 outside the plugin's control. The vault directory is context, not a sandbox.
 

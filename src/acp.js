@@ -273,7 +273,9 @@ export class AcpSession extends EventEmitter {
     this.emit('permissions-cancelled');
   }
 
-  async start(cwd) {
+  // Initialize only. A chat is then opened, new or past, with open(), so past
+  // chats can be listed without creating an empty session first.
+  async connect() {
     if (this.state !== 'not-started') throw new OperationalError('START_NOT_AVAILABLE');
     this.setState('starting');
     this.startupTimer = setTimeout(() => this.fail('STARTUP_TIMEOUT'), this.limits.startupMs);
@@ -286,14 +288,69 @@ export class AcpSession extends EventEmitter {
       if (!isRecord(initialized) || initialized.protocolVersion !== 1 || !isRecord(initialized.agentCapabilities)) {
         throw new OperationalError('INCOMPATIBLE_PROTOCOL');
       }
+      if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
       this.identity = initialized.agentInfo ?? null;
       this.capabilities = initialized.agentCapabilities;
-      const session = await this.request('session/new', { cwd, mcpServers: [] });
-      if (!isRecord(session) || typeof session.sessionId !== 'string' || !session.sessionId) {
-        throw new OperationalError('INVALID_SESSION');
+      clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+      this.setState('connected');
+      return { identity: this.identity, capabilities: this.capabilities };
+    } catch (error) {
+      this.fail(error.code || 'START_FAILED');
+      if (this.cleanup) await this.cleanup;
+      throw error;
+    }
+  }
+
+  canList() { return isRecord(this.capabilities?.sessionCapabilities) && isRecord(this.capabilities.sessionCapabilities.list); }
+  canLoad() { return this.capabilities?.loadSession === true; }
+
+  // Past chats for this directory, newest first. A refused listing leaves the
+  // agent usable; entries from other directories or without an ID are dropped.
+  async listSessions(cwd) {
+    if (!['connected', 'ready'].includes(this.state)) throw new OperationalError('HISTORY_NOT_AVAILABLE');
+    if (!this.canList()) throw new OperationalError('HISTORY_NOT_SUPPORTED');
+    const entries = [];
+    let cursor;
+    for (let page = 0; page < this.limits.historyPages && entries.length < this.limits.historyEntries; page++) {
+      let result;
+      try { result = await this.request('session/list', cursor ? { cwd, cursor } : { cwd }); }
+      catch (error) { throw new OperationalError(this.transportClosed ? error.code : 'HISTORY_UNAVAILABLE'); }
+      if (!isRecord(result) || !Array.isArray(result.sessions)) throw new OperationalError('HISTORY_UNAVAILABLE');
+      for (const item of result.sessions) {
+        if (entries.length >= this.limits.historyEntries) break;
+        if (!isRecord(item) || !label(item.sessionId) || item.cwd !== cwd || entries.some(entry => entry.sessionId === item.sessionId)) continue;
+        const updated = typeof item.updatedAt === 'string' ? Date.parse(item.updatedAt) : NaN;
+        entries.push({ sessionId: item.sessionId, title: label(item.title, 512) ? item.title : '', updatedAt: Number.isFinite(updated) ? updated : null });
+      }
+      if (!label(result.nextCursor)) break;
+      cursor = result.nextCursor;
+    }
+    return entries.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }
+
+  // Opens a new chat, or loads a past one. Loading replays its history as
+  // ordinary session updates before the response arrives.
+  async open(cwd, sessionId = null) {
+    if (this.state !== 'connected') throw new OperationalError('START_NOT_AVAILABLE');
+    if (sessionId !== null && (!this.canLoad() || !label(sessionId))) throw new OperationalError('LOAD_NOT_SUPPORTED');
+    this.setState('starting');
+    this.startupTimer = setTimeout(() => this.fail('STARTUP_TIMEOUT'), sessionId ? this.limits.loadMs : this.limits.startupMs);
+    try {
+      let session;
+      if (sessionId) {
+        // Known up front, so replayed updates are delivered as they arrive.
+        this.sessionId = sessionId;
+        session = await this.request('session/load', { sessionId, cwd, mcpServers: [] });
+        if (!isRecord(session)) throw new OperationalError('INVALID_SESSION');
+      } else {
+        session = await this.request('session/new', { cwd, mcpServers: [] });
+        if (!isRecord(session) || typeof session.sessionId !== 'string' || !session.sessionId) {
+          throw new OperationalError('INVALID_SESSION');
+        }
       }
       if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
-      this.sessionId = session.sessionId;
+      this.sessionId = sessionId ?? session.sessionId;
       this.configOptions = sanitizeConfigOptions(session.configOptions, this.limits);
       const startupUpdates = this.startupUpdates;
       this.startupUpdates = [];
@@ -309,6 +366,11 @@ export class AcpSession extends EventEmitter {
       if (this.cleanup) await this.cleanup;
       throw error;
     }
+  }
+
+  async start(cwd, sessionId = null) {
+    await this.connect();
+    return this.open(cwd, sessionId);
   }
 
   async prompt(text) {
@@ -351,7 +413,7 @@ export class AcpSession extends EventEmitter {
   }
 
   stop() {
-    if (this.state === 'starting') { this.close(); return; }
+    if (['starting', 'connected'].includes(this.state)) { this.close(); return; }
     if (!['working', 'waiting-for-approval'].includes(this.state)) return;
     this.setState('stopping');
     this.cancelPermissions();

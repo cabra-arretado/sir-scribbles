@@ -1,6 +1,6 @@
 import { Plugin, ItemView, PluginSettingTab, Setting, FileSystemAdapter, MarkdownView, Modal, Notice, setIcon } from 'obsidian';
 import { ChatController } from './chat.js';
-import { ChatPanel } from './panel.js';
+import { ChatTabs, TabbedPanel } from './tabs.js';
 import { captureSelection, captureFile } from './draft.js';
 import { validateExecutable } from './process.js';
 
@@ -23,14 +23,14 @@ function storePath(app, path) {
   globalThis.localStorage.setItem(key, path);
 }
 
-class ResetModal extends Modal {
+class CloseModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
   onOpen() {
-    this.titleEl.textContent = 'Start a new chat?';
-    this.contentEl.createEl('p', { text: 'This ends the agent and discards the visible conversation, unsent prompt and selection. The agent may keep its own history.' });
+    this.titleEl.textContent = 'Close this chat?';
+    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and selection. The agent keeps its own history, so you may be able to reopen the chat from Open a past chat.' });
     new Setting(this.contentEl)
       .addButton(button => button.setButtonText('Keep chat').onClick(() => this.close()))
-      .addButton(button => button.setButtonText('Discard and start over').setCta().onClick(() => { this.accepted = true; this.close(); }));
+      .addButton(button => button.setButtonText('Close chat').setCta().onClick(() => { this.accepted = true; this.close(); }));
   }
   onClose() { this.resolve(this.accepted); this.contentEl.empty(); }
 }
@@ -53,12 +53,14 @@ class ScribblesView extends ItemView {
     }
     if (this.plugin.cleanupPending) await this.plugin.cleanupPending;
     if (this.closed || this.plugin.unloaded) return;
-    this.controller = this.plugin.controller ?? new ChatController(adapter.getBasePath(), {
+    const cwd = adapter.getBasePath();
+    this.tabs = this.plugin.tabs ?? new ChatTabs(() => new ChatController(cwd, {
       getSourcePath: () => this.plugin.lastEditor?.file?.path ?? '',
-    });
-    if (this.controller.disposed) this.controller.recoverCleanup();
-    this.plugin.controller = this.controller;
-    this.panel = new ChatPanel(this.contentEl, this.controller, {
+    }));
+    if (this.tabs.disposed) this.tabs.recover();
+    if (!this.tabs.chats.length) this.tabs.add();
+    this.plugin.tabs = this.tabs;
+    this.panel = new TabbedPanel(this.contentEl, this.tabs, {
       setIcon,
       getPath: () => this.plugin.executablePath,
       savePath: async path => { await validateExecutable(path); await this.plugin.savePath(path); },
@@ -66,7 +68,7 @@ class ScribblesView extends ItemView {
         view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view)),
       attachFile: () => captureFile(this.plugin.lastEditor, view =>
         view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view)),
-      confirmReset: () => new Promise(resolve => new ResetModal(this.app, resolve).open()),
+      confirmClose: () => new Promise(resolve => new CloseModal(this.app, resolve).open()),
       copyText: text => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text),
       openNote: async (target, sourcePath, newLeaf) => {
         if (typeof target === 'object') {
@@ -83,13 +85,13 @@ class ScribblesView extends ItemView {
     if (this.plugin.activeView !== this) return;
     this.plugin.activeView = null;
     this.plugin.lastEditor = null;
-    const controller = this.controller;
-    if (!controller) return;
+    const tabs = this.tabs;
+    if (!tabs) return;
     // Keep the owner during asynchronous shutdown, preventing a fresh Start
-    // from racing the old process group's exit.
-    this.plugin.cleanupPending = controller?.dispose() ?? Promise.resolve(true);
+    // from racing the old process groups' exit.
+    this.plugin.cleanupPending = tabs.dispose();
     const clean = await this.plugin.cleanupPending;
-    if (clean) this.plugin.controller = null;
+    if (clean) this.plugin.tabs = null;
     else new Notice('Agent cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.', 0);
     this.plugin.cleanupPending = null;
   }
@@ -118,7 +120,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.executablePath = loadPath(this.app);
     this.lastEditor = null;
     this.activeView = null;
-    this.controller = null;
+    this.tabs = null;
     this.cleanupPending = null;
     this.registerView(VIEW_TYPE, leaf => new ScribblesView(leaf, this));
     this.addRibbonIcon('messages-square', 'Open Sir Scribbles', () => { void this.openChat(); });
@@ -139,7 +141,7 @@ export default class SirScribblesPlugin extends Plugin {
   async savePath(path) {
     storePath(this.app, path);
     this.executablePath = path;
-    this.activeView?.panel?.render();
+    this.activeView?.panel?.renderAll();
   }
   async openChat() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
@@ -155,7 +157,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.activeView?.panel?.dispose();
     this.lastEditor = null;
     if (!this.shutdownPending) this.shutdownPending = (async () => {
-      const clean = (await (this.cleanupPending ?? this.controller?.dispose())) ?? true;
+      const clean = (await (this.cleanupPending ?? this.tabs?.dispose())) ?? true;
       if (!clean) new Notice('Agent cleanup could not be confirmed on unload. Check the CLI process in your terminal.', 0);
       return clean;
     })();

@@ -368,3 +368,30 @@ test('model picker appears only when the agent offers models and follows its sta
   await tick();
   assert.equal(picker.disabled, true);
 });
+
+test('past chats list opens the chosen chat or a new one; replayed rows have no time', t => {
+  const { model, panel, root } = create(t);
+  const opened = [];
+  model.open = async (...args) => { opened.push(args); };
+  model.state = 'connected';
+  model.history = { pending: true };
+  panel.render();
+  assert.equal(panel.empty.hidden, true);
+  assert.match(panel.historyArea.textContent, /Asking the agent/);
+  assert.equal(root.querySelector('.sir-scribbles-history .sir-scribbles-secondary').disabled, true);
+  model.history = { entries: [{ sessionId: 'old', title: '<b>Older</b>', updatedAt: Date.UTC(2026, 0, 2) }, { sessionId: 'x', title: '', updatedAt: null }] };
+  panel.render();
+  const items = root.querySelectorAll('.sir-scribbles-history-item');
+  assert.equal(items.length, 2);
+  assert.equal(items[0].querySelector('.sir-scribbles-history-title').textContent, '<b>Older</b>');
+  assert.equal(items[1].textContent, 'Untitled chat');
+  items[0].click();
+  root.querySelector('.sir-scribbles-history .sir-scribbles-secondary').click();
+  assert.deepEqual(opened, [['old', '<b>Older</b>'], []]);
+  model.state = 'ready';
+  model.history = null;
+  model.messages.push({ role: 'user', text: 'Earlier question', timestamp: null });
+  panel.render();
+  assert.equal(panel.historyArea.hidden, true);
+  assert.equal(panel.transcript.querySelector('.sir-scribbles-user time'), null);
+});

@@ -6,7 +6,11 @@ export const LIMITS = Object.freeze({
   permissions: 16,
   configOptions: 32,
   configValues: 256,
+  chats: 5,
+  historyEntries: 100,
+  historyPages: 5,
   startupMs: 15_000,
+  loadMs: 60_000,
   cancellationMs: 5_000,
   shutdownMs: 2_000,
 });
