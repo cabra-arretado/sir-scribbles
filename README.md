@@ -22,6 +22,10 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
   write or run anything its own permissions allow, including outside the vault.
   Actions Kiro asks about appear in the sidebar for approval; actions already
   allowed by Kiro's configuration may run without asking.
+- **Saved approval rules.** Choosing **Always allow** or **Always deny** asks
+  Kiro to save a rule for this vault in its workspace `permissions.yaml`, under
+  `~/.kiro/workspace-roots/` outside the vault. Kiro then applies it without
+  asking, in every chat. The plugin never writes that file itself.
 - **No telemetry or ads.** The plugin keeps conversations in memory only. Kiro
   keeps its own chat history; **Open a past chat** asks Kiro for it. The only
   saved setting is the executable path, stored on this device.
