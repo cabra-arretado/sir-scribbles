@@ -6,6 +6,42 @@ import { terminateOwnedProcess } from './process.js';
 
 const validId = id => (typeof id === 'string' && id.length > 0) || Number.isSafeInteger(id);
 const idKey = id => `${typeof id}:${id}`;
+const label = (value, max = 1024) => typeof value === 'string' && value.length > 0 && value.length <= max;
+
+function configValue(entry, group) {
+  if (!isRecord(entry) || !label(entry.value) || !label(entry.name)) return null;
+  const value = { value: entry.value, name: entry.name };
+  if (label(entry.description)) value.description = entry.description;
+  if (group) value.group = group;
+  return value;
+}
+
+// Keep only select options with a valid current value. Grouped values are
+// flattened with their group name; anything else the agent sends is dropped.
+export function sanitizeConfigOptions(input, limits = LIMITS) {
+  if (!Array.isArray(input)) return [];
+  const options = [];
+  for (const entry of input.slice(0, limits.configOptions)) {
+    if (!isRecord(entry) || entry.type !== 'select' || !label(entry.id) || !label(entry.name) ||
+        !Array.isArray(entry.options) || options.some(option => option.id === entry.id)) continue;
+    const values = [];
+    for (const item of entry.options) {
+      if (isRecord(item) && Array.isArray(item.options)) {
+        for (const nested of item.options.slice(0, limits.configValues - values.length)) {
+          values.push(configValue(nested, label(item.name) ? item.name : ''));
+        }
+      } else values.push(configValue(item, ''));
+      if (values.length >= limits.configValues) break;
+    }
+    const valid = values.filter(Boolean).slice(0, limits.configValues);
+    if (!valid.some(value => value.value === entry.currentValue)) continue;
+    const option = { id: entry.id, name: entry.name, type: 'select', currentValue: entry.currentValue, options: valid };
+    if (label(entry.description)) option.description = entry.description;
+    if (label(entry.category, 128)) option.category = entry.category;
+    options.push(option);
+  }
+  return options;
+}
 
 // Allocate one bounded buffer, not an unbounded string or chunk list.
 // Scan byte boundaries before parsing and reject malformed UTF-8.
@@ -66,6 +102,7 @@ export class AcpSession extends EventEmitter {
     this.terminate = terminate;
     this.state = 'not-started';
     this.sessionId = null;
+    this.configOptions = [];
     this.startupUpdates = [];
     this.pending = new Map();
     this.permissions = new Map();
@@ -147,10 +184,7 @@ export class AcpSession extends EventEmitter {
       if (frame.method === 'session/update') {
         if (!isRecord(frame.params) || !isRecord(frame.params.update)) throw new OperationalError('INVALID_UPDATE');
         if (this.state === 'starting' && this.sessionId === null) this.startupUpdates.push(frame.params);
-        else if (frame.params.sessionId === this.sessionId) {
-          this.rememberToolCall(frame.params.update);
-          this.emit('update', frame.params.update);
-        }
+        else if (frame.params.sessionId === this.sessionId) this.deliver(frame.params.update);
       }
       return;
     }
@@ -163,6 +197,20 @@ export class AcpSession extends EventEmitter {
     // Do not copy the server's potentially sensitive message into diagnostics.
     if (Object.hasOwn(frame, 'error')) pending.reject(new OperationalError('AGENT_REQUEST_FAILED'));
     else pending.resolve(frame.result);
+  }
+
+  deliver(update) {
+    if (update.sessionUpdate === 'config_option_update') {
+      this.setConfigOptions(update.configOptions);
+      return;
+    }
+    this.rememberToolCall(update);
+    this.emit('update', update);
+  }
+
+  setConfigOptions(input) {
+    this.configOptions = sanitizeConfigOptions(input, this.limits);
+    this.emit('config-options', this.configOptions);
   }
 
   rememberToolCall(update) {
@@ -246,15 +294,16 @@ export class AcpSession extends EventEmitter {
       }
       if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
       this.sessionId = session.sessionId;
+      this.configOptions = sanitizeConfigOptions(session.configOptions, this.limits);
       const startupUpdates = this.startupUpdates;
       this.startupUpdates = [];
       for (const params of startupUpdates) {
-        if (params.sessionId === this.sessionId) this.emit('update', params.update);
+        if (params.sessionId === this.sessionId) this.deliver(params.update);
       }
       clearTimeout(this.startupTimer);
       this.startupTimer = null;
       this.setState('ready');
-      return { identity: this.identity, capabilities: this.capabilities };
+      return { identity: this.identity, capabilities: this.capabilities, configOptions: this.configOptions };
     } catch (error) {
       this.fail(error.code || 'START_FAILED');
       if (this.cleanup) await this.cleanup;
@@ -284,6 +333,21 @@ export class AcpSession extends EventEmitter {
       this.toolCalls.clear();
       if (!this.transportClosed) this.setState('ready');
     }
+  }
+
+  // Only between turns, and only to a value the agent offered. A rejected
+  // change leaves the session usable; the agent keeps its previous value.
+  async setConfigOption(configId, value) {
+    if (this.state !== 'ready') throw new OperationalError('CONFIG_NOT_AVAILABLE');
+    const option = this.configOptions.find(entry => entry.id === configId);
+    if (!option?.options.some(entry => entry.value === value)) throw new OperationalError('CONFIG_VALUE_UNKNOWN');
+    let result;
+    try { result = await this.request('session/set_config_option', { sessionId: this.sessionId, configId, value }); }
+    catch (error) { throw new OperationalError(this.transportClosed ? error.code : 'CONFIG_REJECTED'); }
+    if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
+    if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError('CONFIG_REJECTED');
+    this.setConfigOptions(result.configOptions);
+    return this.configOptions;
   }
 
   stop() {

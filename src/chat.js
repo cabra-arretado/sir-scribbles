@@ -22,6 +22,8 @@ export const ERROR_TEXT = {
   TRANSPORT_LOST: 'The agent connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.',
   PROCESS_EXITED: 'The agent exited. Check its login and installation in your terminal. The previous task outcome may be uncertain.',
   PROCESS_FAILED: 'The agent could not start. Check the executable, its login and installation.',
+  CONFIG_REJECTED: 'The agent did not change the model. It keeps the previous one.',
+  CONFIG_VALUE_UNKNOWN: 'The agent no longer offers that model. Choose another one.',
 };
 export const errorText = code => ERROR_TEXT[code] ?? `The agent stopped (${code || 'UNKNOWN_ERROR'}). The previous task outcome may be uncertain. Start a new chat.`;
 
@@ -42,6 +44,8 @@ export class ChatController extends EventEmitter {
     this.selection = null;
     this.file = null;
     this.identity = '';
+    this.configOptions = [];
+    this.configPending = false;
     this.error = '';
     this.cleanup = '';
     this.forceAvailable = false;
@@ -63,6 +67,8 @@ export class ChatController extends EventEmitter {
   }
   removeFile() { this.file = null; this.changed(); }
   removeSelection() { this.selection = null; this.changed(); }
+  // The session's model choice, if the agent offers one as a config option.
+  modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
   activePermission() { return this.session?.permissions.values().next().value ?? null; }
   setError(code) { this.error = errorText(code); this.changed(); }
 
@@ -84,6 +90,9 @@ export class ChatController extends EventEmitter {
         if (live()) { this.state = state; this.changed(); }
       });
       session.on('update', update => { if (live()) this.update(update); });
+      session.on('config-options', options => {
+        if (live()) { this.configOptions = options; this.changed(); }
+      });
       for (const event of ['permission', 'permission-settled', 'permissions-cancelled']) {
         session.on(event, () => { if (live()) this.changed(); });
       }
@@ -107,6 +116,7 @@ export class ChatController extends EventEmitter {
       if (live()) {
         this.identity = [initialized.identity?.title ?? initialized.identity?.name, initialized.identity?.version]
           .filter(value => typeof value === 'string').join(' · ');
+        this.configOptions = initialized.configOptions ?? [];
         this.changed();
       }
     } catch (error) {
@@ -154,7 +164,7 @@ export class ChatController extends EventEmitter {
   }
 
   async send(executable = '') {
-    if (this.resetting || this.disposed || !['not-started', 'ready'].includes(this.state)) return;
+    if (this.resetting || this.disposed || this.configPending || !['not-started', 'ready'].includes(this.state)) return;
     if (this.state === 'not-started' && !executable) return;
     let prompt;
     try { prompt = composePrompt(this.draft, this.selection, this.file); }
@@ -197,6 +207,24 @@ export class ChatController extends EventEmitter {
       }
     } finally {
       if (generation === this.generation && !this.disposed) this.changed();
+    }
+  }
+
+  async setModel(value) {
+    const option = this.modelOption();
+    if (!option || this.state !== 'ready' || this.configPending || this.resetting || this.disposed) return;
+    if (value === option.currentValue) return;
+    const session = this.session;
+    const generation = this.generation;
+    this.configPending = true;
+    this.error = '';
+    this.changed();
+    try { await session.setConfigOption(option.id, value); }
+    catch (error) {
+      // Transport failures already reported their own error.
+      if (generation === this.generation && !this.disposed && !session.transportClosed) this.setError(error.code);
+    } finally {
+      if (generation === this.generation && !this.disposed) { this.configPending = false; this.changed(); }
     }
   }
 
@@ -253,6 +281,8 @@ export class ChatController extends EventEmitter {
     this.selection = null;
     this.file = null;
     this.identity = '';
+    this.configOptions = [];
+    this.configPending = false;
     this.error = '';
     this.cleanup = '';
     this.uiBytes = 0;

@@ -22,6 +22,7 @@ export class ChatPanel {
     this.lastQueued = -1;
     this.lastSelection = undefined;
     this.lastPath = null;
+    this.lastModel = null;
     this.streaming = new Set();
     this.frame = null;
     this.lastFrame = 0;
@@ -153,12 +154,16 @@ export class ChatPanel {
       if (this.model.file) { this.model.removeFile(); return; }
       await this.attachContext('attachFile', 'OPEN_NOTE_FIRST');
     }, 'sir-scribbles-attach');
+    // Obsidian styles a plain select with its own "dropdown" class.
+    this.modelPicker = this.el('select', 'dropdown sir-scribbles-model');
+    this.modelPicker.setAttribute('aria-label', 'Model');
+    this.modelPicker.addEventListener('change', () => { void this.model.setModel(this.modelPicker.value); });
     this.force = this.button('Force stop agent', () => { void this.model.forceStop(); }, 'sir-scribbles-danger');
     this.send = this.button('', () => { void this.model.send(this.actions.getPath().trim()); }, 'mod-cta sir-scribbles-send');
     this.setIcon(this.send, 'arrow-up', 'Send');
     this.stop = this.button('', () => this.model.stop(), 'sir-scribbles-send sir-scribbles-stop');
     this.setIcon(this.stop, 'square', 'Stop');
-    toolbar.append(this.attach, this.attachFile, this.force, this.stop, this.send);
+    toolbar.append(this.attach, this.attachFile, this.modelPicker, this.force, this.stop, this.send);
     composer.append(this.selectionArea, this.composer, toolbar);
     footer.append(composer);
     this.container.append(footer);
@@ -187,7 +192,7 @@ export class ChatPanel {
   renderControls() {
     const model = this.model;
     const canStart = model.state === 'not-started' && Boolean(this.actions.getPath().trim());
-    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection || model.file);
+    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending || !(model.draft.trim() || model.selection || model.file);
     this.send.title = canStart ? 'Start the agent and send (Enter)' : 'Send (Enter)';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
@@ -205,6 +210,7 @@ export class ChatPanel {
     this.stop.hidden = !['starting', 'working', 'waiting-for-approval', 'stopping'].includes(model.state);
     this.stop.disabled = model.state === 'stopping' || model.resetting;
     this.send.hidden = !this.stop.hidden;
+    this.modelPicker.disabled = model.state !== 'ready' || model.configPending || model.resetting;
     this.force.hidden = !model.forceAvailable;
     this.force.disabled = model.resetting;
   }
@@ -227,6 +233,39 @@ export class ChatPanel {
     this.renderMessages();
     this.renderSelection();
     this.renderPermission();
+    this.renderModel();
+  }
+
+  // Agents replace the whole option list on every change, so a new object
+  // means new choices; the current value is synced on every render.
+  renderModel() {
+    const option = this.model.modelOption();
+    this.modelPicker.hidden = !option;
+    if (!option) { this.lastModel = null; return; }
+    if (option !== this.lastModel) {
+      this.lastModel = option;
+      const groups = new Map();
+      this.modelPicker.replaceChildren();
+      for (const value of option.options) {
+        const item = this.el('option', '', value.name);
+        item.value = value.value;
+        if (value.description) item.title = value.description;
+        let parent = this.modelPicker;
+        if (value.group) {
+          parent = groups.get(value.group);
+          if (!parent) {
+            parent = this.el('optgroup');
+            parent.label = value.group;
+            groups.set(value.group, parent);
+            this.modelPicker.append(parent);
+          }
+        }
+        parent.append(item);
+      }
+    }
+    const current = option.options.find(value => value.value === option.currentValue);
+    this.modelPicker.value = option.currentValue;
+    this.modelPicker.title = [option.name, current?.description].filter(Boolean).join(' · ');
   }
 
   renderMessages() {
