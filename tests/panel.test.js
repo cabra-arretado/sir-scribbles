@@ -445,9 +445,9 @@ test('a replay that finishes before the scheduled render is shown at once, not a
   assert.equal(panel.transcript.querySelector('.sir-scribbles-agent .sir-scribbles-markdown').textContent.length, 1200);
 });
 
-test('the start area says Start agent is how to choose a non-default model', t => {
+test('the start area says Start agent is how to choose a non-default model or a past chat', t => {
   const { root } = create(t);
-  assert.ok(root.querySelector('.sir-scribbles-start-area').textContent.includes('Start the agent first to choose a model other than its default'));
+  assert.ok(root.querySelector('.sir-scribbles-start-area').textContent.includes('Start it first to pick another model or a past chat.'));
 });
 
 test('a chat started with Start agent lists past chats until its first message', t => {
@@ -504,4 +504,15 @@ test('edits and removals made while a past chat reopens are kept', async t => {
   assert.equal(panel.composer.value, 'Edited draft');
   assert.equal(model.selection, null);
   assert.equal(model.file, null);
+});
+
+test('after a refused reopen the panel shows the past chats and Start a new chat', t => {
+  const { model, panel } = create(t);
+  model.state = 'connected';
+  model.history = { entries: [{ sessionId: 'old', title: 'Older chat', updatedAt: null }] };
+  model.error = 'The agent could not reopen that chat.';
+  panel.render();
+  assert.equal(panel.historyArea.hidden, false);
+  assert.ok(panel.historyArea.textContent.includes('Older chat'));
+  assert.ok([...panel.historyArea.querySelectorAll('button')].some(button => button.textContent === 'Start a new chat'));
 });
