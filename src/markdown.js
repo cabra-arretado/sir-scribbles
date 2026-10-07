@@ -59,9 +59,14 @@ const tags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
 // by absolute path or file URL. Those inside the vault open as vault paths.
 export function noteLinkTarget(href, encoded = false, vaultPath = '') {
   try {
-    let decoded = encoded ? decodeURIComponent(href) : href;
+    let decoded;
+    // Parse a file URL before decoding it, so the path and its #heading or
+    // #^block fragment are each decoded exactly once.
+    if (vaultPath && /^file:\/\//i.test(href)) {
+      const url = new URL(href);
+      decoded = decodeURIComponent(url.pathname) + decodeURIComponent(url.hash);
+    } else decoded = encoded ? decodeURIComponent(href) : href;
     if (vaultPath) {
-      if (/^file:\/\//i.test(decoded)) decoded = decodeURIComponent(new URL(decoded).pathname);
       const root = vaultPath.replace(/\/+$/, '') + '/';
       if (decoded.startsWith(root)) decoded = decoded.slice(root.length);
     }

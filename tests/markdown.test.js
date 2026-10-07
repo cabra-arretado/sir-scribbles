@@ -108,3 +108,18 @@ test('bare web addresses become links and vault paths open as notes', () => {
   assert.ok(![...root.querySelectorAll('a')].some(a => /^file:/i.test(a.getAttribute('href') ?? '')));
   dom.window.close();
 });
+
+test('file URLs into the vault decode once and keep heading and block references', () => {
+  const dom = new JSDOM('<main></main>');
+  const root = dom.window.document.querySelector('main');
+  const opened = [];
+  renderMarkdown(root, [
+    '[a](file:///Users/me/Vault/Progress%20at%2050%25.md)',
+    '[b](file:///Users/me/Vault/Literal%2520name.md)',
+    '[c](file:///Users/me/Vault/Plan.md#Next%20steps)',
+    '[d](file:///Users/me/Vault/Plan.md#^block-1)',
+  ].join(' '), { openNote: target => { opened.push(target); }, vaultPath: '/Users/me/Vault' });
+  for (const link of root.querySelectorAll('a.internal-link')) link.click();
+  assert.deepEqual(opened, ['Progress at 50%.md', 'Literal%20name.md', 'Plan.md#Next steps', 'Plan.md#^block-1']);
+  dom.window.close();
+});
