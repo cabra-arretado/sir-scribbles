@@ -167,9 +167,14 @@ export class ChatController extends EventEmitter {
   // throughout, so edits made while the old process closes are kept.
   async reopen(executable, sessionId, title = '') {
     if (this.state !== 'ready' || this.messages.length || this.configPending || this.resetting || this.disposed) return;
+    const entries = this.recent?.entries ?? [];
     if (!(await this.newChat({ keepComposer: true }))) return;
     await this.connect(executable);
-    if (this.state === 'connected') await this.open(sessionId, title);
+    if (this.state !== 'connected') return;
+    // The same picker as Open a past chat: if the agent refuses this chat,
+    // the list and its new-chat choice stay on screen.
+    this.history = { entries };
+    await this.open(sessionId, title);
   }
 
   // Lists this vault's past chats so the user can reopen one. Starts the
