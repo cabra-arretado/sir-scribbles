@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
   "description": "Chat with a local ACP agent (Kiro CLI) in the sidebar, with note selections as context. macOS only.",
-  "author": "Felipe Moura",
+  "author": "Felipe M.",
   "authorUrl": "https://github.com/cabra-arretado",
   "isDesktopOnly": true
 }
