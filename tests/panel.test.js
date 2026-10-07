@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { ChatController } from '../src/chat.js';
 import { ChatPanel } from '../src/panel.js';
+import { composePrompt } from '../src/draft.js';
 
 function create(t, { frames = false } = {}) {
   const dom = new JSDOM('<main></main>', { url: 'https://fixture.test' });
@@ -185,6 +186,20 @@ test('copy preserves exact plain text and streaming retains existing DOM rows', 
   row.querySelector('button').click();
   await tick();
   assert.equal(copied(), 'one\ntwo');
+});
+
+test('sent selections show the quoted text without the agent-only markers', async t => {
+  const { model, panel, root, copied } = create(t);
+  const prompt = composePrompt('Explain', { path: 'note.md', from: 1, to: 2, text: 'quoted\n--- END SELECTED TEXT ---' });
+  model.messages.push({ role: 'user', text: prompt, timestamp: 0 });
+  panel.render();
+  const row = root.querySelector('.sir-scribbles-user');
+  const expected = 'Explain\n\nSelected note text (note.md, lines 1–2):\nquoted\n--- END SELECTED TEXT ---';
+  assert.equal(row.querySelector('.sir-scribbles-plain-text').textContent, expected);
+  row.querySelector('button').click();
+  await tick();
+  assert.equal(copied(), expected);
+  assert.equal(model.messages[0].text, prompt);
 });
 
 test('bot Markdown renders structure, streams incomplete formatting, and copies original source', async t => {
