@@ -63,3 +63,23 @@ test('re-rendering keeps unchanged leading blocks in place', () => {
   assert.equal(root.textContent, 'Replaced');
   dom.window.close();
 });
+
+test('a reused link opens the destination its definition finished with', () => {
+  const dom = new JSDOM('<main></main>');
+  const root = dom.window.document.querySelector('main');
+  const opened = [];
+  const openNote = target => { opened.push(target); };
+  renderMarkdown(root, 'See [Plan][ref].\n\n[ref]: Pro', { openNote });
+  renderMarkdown(root, 'See [Plan][ref].\n\n[ref]: Projects/Plan.md', { openNote });
+  root.querySelector('a').click();
+  assert.deepEqual(opened, ['Projects/Plan.md']);
+  dom.window.close();
+});
+
+test('replies with many blocks render without overflowing the stack', () => {
+  const dom = new JSDOM('<main></main>');
+  const root = dom.window.document.querySelector('main');
+  renderMarkdown(root, 'x\n\n'.repeat(130000));
+  assert.equal(root.childElementCount, 130000);
+  dom.window.close();
+});

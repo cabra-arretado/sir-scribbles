@@ -6255,6 +6255,7 @@ function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
     if (!openNote) return;
     element.classList.add("internal-link");
     element.setAttribute("href", "#");
+    element.dataset.note = JSON.stringify(target);
     element.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -6338,12 +6339,17 @@ ${href}` : href;
     }
   };
   append(markdown.parse(source, {}));
-  const previous = [...container.childNodes];
-  const next = [...fragment.childNodes];
-  let same = 0;
-  while (same < previous.length && same < next.length && previous[same].isEqualNode(next[same])) same++;
-  for (const node of previous.slice(same)) node.remove();
-  container.append(...next.slice(same));
+  let kept = container.firstChild;
+  while (kept && fragment.firstChild?.isEqualNode(kept)) {
+    fragment.firstChild.remove();
+    kept = kept.nextSibling;
+  }
+  while (kept) {
+    const stale = kept;
+    kept = kept.nextSibling;
+    stale.remove();
+  }
+  container.append(fragment);
 }
 
 // src/mascot.js
@@ -6603,7 +6609,13 @@ var ChatPanel = class {
       if (!existing.has(message)) {
         row.root.remove();
         this.rows.delete(message);
+        this.streaming.delete(row);
       }
+    }
+    if (this.frame && !this.streaming.size) {
+      this.document.defaultView.cancelAnimationFrame?.(this.frame);
+      this.frame = null;
+      this.lastFrame = 0;
     }
     for (const message of this.model.messages) {
       let row = this.rows.get(message);
@@ -6657,7 +6669,10 @@ var ChatPanel = class {
   // Streamed text arrives in uneven bursts. Reveal it at a pace that follows
   // the backlog: steady for small chunks, catching up quickly on large ones.
   updateReply(row, message) {
-    if (row.target === message.text) return;
+    if (row.target === message.text) {
+      if (!this.streaming.has(row)) this.paintReply(row);
+      return;
+    }
     if (!message.text.startsWith(row.target ?? "")) row.shown = 0;
     row.target = message.text;
     row.message = message;
@@ -6672,7 +6687,8 @@ var ChatPanel = class {
   }
   paintReply(row) {
     const text2 = row.message.text;
-    const visible = row.shown >= text2.length ? text2 : settleStreaming(text2.slice(0, row.shown));
+    const writing = row.message === this.model.messages.at(-1) && this.model.state === "working";
+    const visible = row.shown >= text2.length && !writing ? text2 : settleStreaming(text2.slice(0, row.shown));
     if (visible === row.rendered) return;
     renderMarkdown(row.body, visible, {
       sourcePath: row.message.sourcePath,

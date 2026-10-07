@@ -233,7 +233,12 @@ export class ChatPanel {
     const nearBottom = this.transcript.scrollHeight - this.transcript.scrollTop - this.transcript.clientHeight < 80;
     const existing = new Set(this.model.messages);
     for (const [message, row] of this.rows) {
-      if (!existing.has(message)) { row.root.remove(); this.rows.delete(message); }
+      if (!existing.has(message)) { row.root.remove(); this.rows.delete(message); this.streaming.delete(row); }
+    }
+    if (this.frame && !this.streaming.size) {
+      this.document.defaultView.cancelAnimationFrame?.(this.frame);
+      this.frame = null;
+      this.lastFrame = 0;
     }
     for (const message of this.model.messages) {
       let row = this.rows.get(message);
@@ -281,7 +286,8 @@ export class ChatPanel {
   // Streamed text arrives in uneven bursts. Reveal it at a pace that follows
   // the backlog: steady for small chunks, catching up quickly on large ones.
   updateReply(row, message) {
-    if (row.target === message.text) return;
+    // Unchanged text may still need a repaint when the reply finishes.
+    if (row.target === message.text) { if (!this.streaming.has(row)) this.paintReply(row); return; }
     if (!message.text.startsWith(row.target ?? '')) row.shown = 0;
     row.target = message.text;
     row.message = message;
@@ -293,7 +299,10 @@ export class ChatPanel {
   }
   paintReply(row) {
     const text = row.message.text;
-    const visible = row.shown >= text.length ? text : settleStreaming(text.slice(0, row.shown));
+    // Catching up with the received text does not mean the reply is complete:
+    // keep unfinished syntax settled until the agent stops writing.
+    const writing = row.message === this.model.messages.at(-1) && this.model.state === 'working';
+    const visible = row.shown >= text.length && !writing ? text : settleStreaming(text.slice(0, row.shown));
     if (visible === row.rendered) return;
     renderMarkdown(row.body, visible, {
       sourcePath: row.message.sourcePath,
