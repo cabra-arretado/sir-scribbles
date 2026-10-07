@@ -1,7 +1,7 @@
 import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
-import { displayPrompt } from './draft.js';
+import { displayPrompt } from './display.js';
 
 const DECISIONS = { allow_once: 'Allow once', reject_once: 'Deny once', allow_always: 'Always allow', reject_always: 'Always deny' };
 
@@ -114,7 +114,8 @@ export class ChatPanel {
     launchRow.append(this.start, this.browse);
     this.startArea.append(this.path,
       this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
-      launchRow);
+      launchRow,
+      this.el('p', 'sir-scribbles-caption', 'Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Open a past chat lists the conversations the agent kept for this vault.'));
     this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings → Community plugins → Sir Scribbles.');
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea,
