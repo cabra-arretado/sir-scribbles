@@ -58,7 +58,7 @@
 .sir-scribbles-path { width: 100%; font-family: var(--font-monospace); font-size: var(--font-ui-smaller) !important; }
 .sir-scribbles-caption { color: var(--text-muted); font-size: var(--font-ui-smaller); line-height: var(--line-height-normal); margin: var(--size-4-2) 0; }
 .sir-scribbles-launch { display: flex; flex-direction: column; gap: var(--size-4-2); }
-.sir-scribbles-start-area .sir-scribbles-secondary { width: 100%; }
+.sir-scribbles-start-area .sir-scribbles-primary, .sir-scribbles-start-area .sir-scribbles-secondary { width: 100%; }
 
 /* Past chats: a plain list, like Obsidian's file suggestions. */
 .sir-scribbles-history { padding: var(--size-4-4) var(--size-4-3); }
