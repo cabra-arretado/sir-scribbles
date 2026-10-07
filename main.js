@@ -6767,16 +6767,16 @@ var ChatPanel = class {
     this.path.setAttribute("aria-label", "Agent executable path");
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
-    this.path.addEventListener("input", () => this.renderControls());
+    this.start = this.button("Start agent", () => this.launch("start"), "mod-cta sir-scribbles-primary");
     this.browse = this.button("Open a past chat", () => this.launch("browse"), "sir-scribbles-secondary");
     const launchRow = this.el("div", "sir-scribbles-launch");
-    launchRow.append(this.browse);
+    launchRow.append(this.start, this.browse);
     this.startArea.append(
       this.path,
       this.el("p", "sir-scribbles-caption", "The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
       launchRow
     );
-    this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
+    this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
     this.startArea.append(this.pathHelp);
     this.empty.append(
       this.startArea,
@@ -6804,7 +6804,7 @@ var ChatPanel = class {
     this.composer.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
-        if (!event.repeat && !this.send.disabled) this.submit();
+        if (!event.repeat && !this.send.disabled) void this.model.send(this.actions.getPath().trim());
       }
     });
     const toolbar = this.el("div", "sir-scribbles-composer-toolbar");
@@ -6826,7 +6826,9 @@ var ChatPanel = class {
     this.force = this.button("Force stop agent", () => {
       void this.model.forceStop();
     }, "sir-scribbles-danger");
-    this.send = this.button("", () => this.submit(), "mod-cta sir-scribbles-send");
+    this.send = this.button("", () => {
+      void this.model.send(this.actions.getPath().trim());
+    }, "mod-cta sir-scribbles-send");
     this.setIcon(this.send, "arrow-up", "Send");
     this.stop = this.button("", () => this.model.stop(), "sir-scribbles-send sir-scribbles-stop");
     this.setIcon(this.stop, "square", "Stop");
@@ -6835,13 +6837,7 @@ var ChatPanel = class {
     footer.append(composer);
     this.container.append(footer);
   }
-  // The first prompt starts the agent on its default model, saving a typed path first.
-  submit() {
-    if (this.startPending) return;
-    if (this.model.state === "not-started") void this.launch("send");
-    else void this.model.send(this.actions.getPath().trim());
-  }
-  // Start the agent to send the first prompt, or to list past chats.
+  // Start a new chat, or start the agent to list past ones.
   async launch(method) {
     const saved = this.actions.getPath().trim();
     const executable = saved || this.path.value.trim();
@@ -6881,10 +6877,11 @@ var ChatPanel = class {
   }
   renderControls() {
     const model = this.model;
-    const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim() || this.path.value.trim()) || model.state === "connected";
+    const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim()) || model.state === "connected";
     this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || model.configPending || Boolean(model.history?.pending) || !(model.draft.trim() || model.selection || model.file);
     this.send.title = canStart ? "Start a new chat and send (Enter)" : "Send (Enter)";
-    this.browse.disabled = model.state !== "not-started" || model.resetting || this.startPending;
+    this.start.disabled = model.state !== "not-started" || model.resetting || this.startPending;
+    this.browse.disabled = this.start.disabled;
     this.path.disabled = model.state !== "not-started" || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());
     this.pathHelp.hidden = !this.path.hidden;
