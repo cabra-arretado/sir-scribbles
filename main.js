@@ -360,7 +360,7 @@ var import_node_child_process = require("node:child_process");
 var import_node_fs = require("node:fs");
 var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
-var KIRO_ARGS = Object.freeze(["acp", "--agent-engine=v3", "--auth-method=cli"]);
+var AGENT_ARGS = Object.freeze(["acp", "--agent-engine=v3", "--auth-method=cli"]);
 async function validateExecutable(path) {
   if (typeof path !== "string" || !(0, import_node_path.isAbsolute)(path)) throw new OperationalError("ABSOLUTE_EXECUTABLE_REQUIRED");
   try {
@@ -370,9 +370,9 @@ async function validateExecutable(path) {
     throw new OperationalError("EXECUTABLE_NOT_AVAILABLE");
   }
 }
-function launchKiro(executable, cwd) {
+function launchAgent(executable, cwd) {
   if (process.platform !== "darwin") throw new OperationalError("MACOS_REQUIRED");
-  return (0, import_node_child_process.spawn)(executable, [...KIRO_ARGS], {
+  return (0, import_node_child_process.spawn)(executable, [...AGENT_ARGS], {
     cwd,
     shell: false,
     detached: true,
@@ -809,27 +809,27 @@ ${selection.text}
 
 // src/chat.js
 var ERROR_TEXT = {
-  ABSOLUTE_EXECUTABLE_REQUIRED: "Choose the absolute path to your installed Kiro executable.",
-  EXECUTABLE_NOT_AVAILABLE: "That file is unavailable or not executable. Change the Kiro path in Settings \u2192 Community plugins \u2192 Sir Scribbles, then start a new chat to retry.",
+  ABSOLUTE_EXECUTABLE_REQUIRED: "Choose the absolute path to your installed agent executable.",
+  EXECUTABLE_NOT_AVAILABLE: "That file is unavailable or not executable. Change the agent path in Settings \u2192 Community plugins \u2192 Sir Scribbles, then start a new chat to retry.",
   MACOS_REQUIRED: "This preview supports macOS desktop only.",
-  STARTUP_TIMEOUT: "Kiro did not become ready within 15 seconds. Check your CLI login and V3 installation, then start a new chat.",
-  INCOMPATIBLE_PROTOCOL: "Kiro returned an unsupported protocol. Check your V3 installation.",
-  AGENT_REQUEST_FAILED: "Kiro could not complete the request. Check login in your terminal and V3 compatibility. Previous execution may have occurred.",
+  STARTUP_TIMEOUT: "The agent did not become ready within 15 seconds. Check its login and installation, then start a new chat.",
+  INCOMPATIBLE_PROTOCOL: "The agent returned an unsupported protocol. Check its installation and version.",
+  AGENT_REQUEST_FAILED: "The agent could not complete the request. Check its login in your terminal and its version. Previous execution may have occurred.",
   SELECT_TEXT_FIRST: "Select text in a Markdown note first, then attach it here.",
   OPEN_NOTE_FIRST: "Open a Markdown note first, then attach it here.",
   PROMPT_LIMIT: "The prompt and attached context exceed 128 KiB. Shorten the draft or attach less context; nothing was sent.",
   EMPTY_PROMPT: "Write a prompt or attach context first.",
-  FRAME_LIMIT: "Kiro exceeded the incoming message limit. The connection was ended.",
+  FRAME_LIMIT: "The agent exceeded the incoming message limit. The connection was ended.",
   SESSION_LIMIT: "This conversation exceeded its memory budget. Start a new chat.",
-  PERMISSION_LIMIT: "Kiro exceeded the approval queue limit. The connection was ended.",
-  CLEANUP_UNCERTAIN: "Kiro cleanup could not be confirmed. Force stop again before starting another process.",
-  TRANSPORT_LOST: "The Kiro connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.",
-  PROCESS_EXITED: "Kiro exited. Check your terminal login and V3 installation. The previous task outcome may be uncertain.",
-  PROCESS_FAILED: "Kiro could not start. Check the executable, CLI login and V3 installation."
+  PERMISSION_LIMIT: "The agent exceeded the approval queue limit. The connection was ended.",
+  CLEANUP_UNCERTAIN: "Agent cleanup could not be confirmed. Force stop again before starting another process.",
+  TRANSPORT_LOST: "The agent connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.",
+  PROCESS_EXITED: "The agent exited. Check its login and installation in your terminal. The previous task outcome may be uncertain.",
+  PROCESS_FAILED: "The agent could not start. Check the executable, its login and installation."
 };
-var errorText = (code2) => ERROR_TEXT[code2] ?? `Kiro stopped (${code2 || "UNKNOWN_ERROR"}). The previous task outcome may be uncertain. Start a new chat.`;
+var errorText = (code2) => ERROR_TEXT[code2] ?? `The agent stopped (${code2 || "UNKNOWN_ERROR"}). The previous task outcome may be uncertain. Start a new chat.`;
 var ChatController = class extends import_node_events2.EventEmitter {
-  constructor(cwd, { launch = launchKiro, validate = validateExecutable, createSession = (child) => new AcpSession(child), getSourcePath = () => "" } = {}) {
+  constructor(cwd, { launch = launchAgent, validate = validateExecutable, createSession = (child) => new AcpSession(child), getSourcePath = () => "" } = {}) {
     super();
     this.cwd = cwd;
     this.launch = launch;
@@ -1003,7 +1003,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== "ready") return;
       if (this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile) {
-        this.error = "The draft changed while Kiro was starting. Review it and send again.";
+        this.error = "The draft changed while the agent was starting. Review it and send again.";
         this.changed();
         return;
       }
@@ -6387,14 +6387,14 @@ var ChatPanel = class {
       this.el("p", "", "Ask about your work. Bring a selection from a note when it helps.")
     );
     this.startArea = this.el("section", "sir-scribbles-start-area");
-    this.startArea.append(this.el("h4", "", "Connect your local Kiro"));
+    this.startArea.append(this.el("h4", "", "Connect your local agent"));
     this.path = this.el("input", "sir-scribbles-path");
     this.path.type = "text";
-    this.path.placeholder = "/absolute/path/to/kiro-cli";
-    this.path.setAttribute("aria-label", "Kiro executable path");
+    this.path.placeholder = "/absolute/path/to/agent";
+    this.path.setAttribute("aria-label", "Agent executable path");
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
-    this.start = this.button("Start Kiro", async () => {
+    this.start = this.button("Start agent", async () => {
       const saved = this.actions.getPath().trim();
       const executable = saved || this.path.value.trim();
       const generation = this.model.generation;
@@ -6413,12 +6413,12 @@ var ChatPanel = class {
     }, "mod-cta sir-scribbles-primary");
     this.startArea.append(
       this.path,
-      this.el("p", "sir-scribbles-caption", "Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
+      this.el("p", "sir-scribbles-caption", "The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
       this.start
     );
-    this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start Kiro, or use Start Kiro. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
+    this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
     this.startArea.append(this.pathHelp);
-    this.empty.append(this.startArea, this.el("p", "sir-scribbles-preview-label", "Developer preview \xB7 Kiro V3 compatibility is unverified"));
+    this.empty.append(this.startArea, this.el("p", "sir-scribbles-preview-label", "Developer preview \xB7 Kiro CLI (V3) is currently the only supported agent"));
     this.transcript.append(this.empty);
     this.container.append(this.transcript);
     this.permissionArea = this.el("section", "sir-scribbles-permission-area");
@@ -6453,7 +6453,7 @@ var ChatPanel = class {
       }
       await this.attachContext("attachFile", "OPEN_NOTE_FIRST");
     }, "sir-scribbles-attach");
-    this.attachFile.title = "Attach the current note path; Kiro can read the saved file";
+    this.attachFile.title = "Attach the current note path; the agent can read the saved file";
     this.send = this.button("Send \u2191", () => {
       void this.model.send(this.actions.getPath().trim());
     }, "mod-cta sir-scribbles-primary");
@@ -6463,12 +6463,12 @@ var ChatPanel = class {
     footer.append(composer);
     const controls = this.el("div", "sir-scribbles-session-controls");
     this.stop = this.button("Stop", () => this.model.stop());
-    this.force = this.button("Force stop Kiro", () => {
+    this.force = this.button("Force stop agent", () => {
       void this.model.forceStop();
     }, "sir-scribbles-danger");
     this.shortcut = this.el("span", "sir-scribbles-caption", "Enter to send \xB7 Shift + Enter for a newline");
     controls.append(this.stop, this.force, this.shortcut);
-    footer.append(controls, this.el("p", "sir-scribbles-boundary", "Kiro may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox."));
+    footer.append(controls, this.el("p", "sir-scribbles-boundary", "The agent may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox."));
     this.container.append(footer);
   }
   async attachContext(action, errorCode) {
@@ -6491,7 +6491,7 @@ var ChatPanel = class {
     const model = this.model;
     const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim());
     this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection || model.file);
-    this.send.title = canStart ? "Start Kiro and send this prompt" : "Send prompt";
+    this.send.title = canStart ? "Start the agent and send this prompt" : "Send prompt";
     this.start.disabled = model.state !== "not-started" || model.resetting || this.startPending;
     this.path.disabled = model.state !== "not-started" || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());
@@ -6541,7 +6541,7 @@ var ChatPanel = class {
       if (!row) {
         const root = this.el("article", `sir-scribbles-message sir-scribbles-${message.role}`);
         const header = this.el("div", "sir-scribbles-message-header");
-        const label = this.el("span", "", message.role === "user" ? "You" : message.role === "tool" ? "Tool activity" : "Kiro");
+        const label = this.el("span", "", message.role === "user" ? "You" : message.role === "tool" ? "Tool activity" : "Agent");
         const timestamp = this.el("time", "sir-scribbles-timestamp");
         const date = new Date(message.timestamp ?? Date.now());
         timestamp.dateTime = date.toISOString();
@@ -6702,7 +6702,7 @@ var ResetModal = class extends import_obsidian.Modal {
   }
   onOpen() {
     this.titleEl.textContent = "Start a new chat?";
-    this.contentEl.createEl("p", { text: "This ends Kiro and discards the visible conversation, unsent prompt and selection. Kiro may keep its own history." });
+    this.contentEl.createEl("p", { text: "This ends the agent and discards the visible conversation, unsent prompt and selection. The agent may keep its own history." });
     new import_obsidian.Setting(this.contentEl).addButton((button) => button.setButtonText("Keep chat").onClick(() => this.close())).addButton((button) => button.setButtonText("Discard and start over").setCta().onClick(() => {
       this.accepted = true;
       this.close();
@@ -6775,7 +6775,7 @@ var ScribblesView = class extends import_obsidian.ItemView {
     this.plugin.cleanupPending = controller?.dispose() ?? Promise.resolve(true);
     const clean = await this.plugin.cleanupPending;
     if (clean) this.plugin.controller = null;
-    else new import_obsidian.Notice("Kiro cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.", 0);
+    else new import_obsidian.Notice("Agent cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.", 0);
     this.plugin.cleanupPending = null;
   }
 };
@@ -6786,16 +6786,16 @@ var ScribblesSettings = class extends import_obsidian.PluginSettingTab {
   }
   display() {
     this.containerEl.empty();
-    this.containerEl.createEl("p", { text: "macOS developer preview. Install and authenticate Kiro V3 in your terminal. Selecting a path does not run it." });
+    this.containerEl.createEl("p", { text: "macOS developer preview. Install and sign in to your ACP agent in your terminal; Kiro CLI (V3) is currently the only supported agent. Selecting a path does not run it." });
     let path = this.plugin.executablePath;
     const status = this.containerEl.createEl("p", { attr: { role: "status" } });
-    new import_obsidian.Setting(this.containerEl).setName("Kiro executable").setDesc("Absolute path to the existing CLI executable.").addText((text2) => text2.setPlaceholder("/absolute/path/to/kiro-cli").setValue(path).onChange((value) => {
+    new import_obsidian.Setting(this.containerEl).setName("Agent executable").setDesc("Absolute path to the existing CLI executable.").addText((text2) => text2.setPlaceholder("/absolute/path/to/agent").setValue(path).onChange((value) => {
       path = value.trim();
     })).addButton((button) => button.setButtonText("Validate and save").onClick(async () => {
       try {
         await validateExecutable(path);
         await this.plugin.savePath(path);
-        status.textContent = "Executable path saved. Kiro was not started.";
+        status.textContent = "Executable path saved. The agent was not started.";
       } catch {
         status.textContent = "Choose an existing executable using its absolute path.";
       }
@@ -6854,7 +6854,7 @@ var SirScribblesPlugin = class extends import_obsidian.Plugin {
     this.lastEditor = null;
     if (!this.shutdownPending) this.shutdownPending = (async () => {
       const clean = await (this.cleanupPending ?? this.controller?.dispose()) ?? true;
-      if (!clean) new import_obsidian.Notice("Kiro cleanup could not be confirmed on unload. Check the CLI process in your terminal.", 0);
+      if (!clean) new import_obsidian.Notice("Agent cleanup could not be confirmed on unload. Check the CLI process in your terminal.", 0);
       return clean;
     })();
     return this.shutdownPending;

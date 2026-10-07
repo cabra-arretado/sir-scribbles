@@ -7,13 +7,11 @@ arguments and permission handling implemented today. Other ACP providers are
 planned and are not yet selectable or validated.
 
 Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
-This is a developer preview: compatibility with a real Kiro V3 installation has
-not yet been verified.
 
 ## Disclosures
 
 - **Runs an external program.** The plugin starts the Kiro CLI executable you
-  choose, only when you click **Start Kiro** or send your first prompt. It never
+  choose, only when you click **Start agent** or send your first prompt. It never
   installs, updates or downloads anything.
 - **Requires a Kiro account.** Kiro needs its own login; the plugin stores no
   credentials and has no payment features.
@@ -52,7 +50,7 @@ YOUR_VAULT/.obsidian/plugins/sir-scribbles/
 
 Enable **Sir Scribbles** under Obsidian's Community plugins. Open the sidebar through
 the ribbon button or the **Sir Scribbles: Open Sir Scribbles** command. The manifest declares
-Obsidian 1.5.0+ as the initial API baseline; verification in a real app is pending.
+Obsidian 1.5.0+ as the initial API baseline.
 macOS is the only supported launch platform for this preview.
 
 When replacing the earlier preview, disable it and rename its plugin folder from
@@ -64,13 +62,13 @@ The executable path is now stored on this device per vault, not in the vault's
 ## Use the sidebar
 
 1. On first setup, enter the absolute path to your already installed Kiro executable.
-   The path is saved and reused; later chats show **Start Kiro** without asking
+   The path is saved and reused; later chats show **Start agent** without asking
    for the path again. Change it under **Settings → Community plugins → Sir Scribbles**
    if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
 2. Review the displayed vault directory. With a saved executable, sending your
    first prompt starts ACP and sends after initialization succeeds. You can also
-   click **Start Kiro** first. Opening the sidebar or typing never starts a process.
+   click **Start agent** first. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
 3. Type a prompt. Select text in a Markdown editor and click **+ Selection**
    to capture only that text, with its relative note path and line range. Inspect,
@@ -93,7 +91,7 @@ The executable path is now stored on this device per vault, not in the vault's
    call; missing arguments are identified in the approval card. Unsupported
    consent semantics still cancel the request.
    Existing Kiro policy may allow actions without asking the sidebar.
-6. **Stop** requests cancellation and disables approvals. **Force stop Kiro**
+6. **Stop** requests cancellation and disables approvals. **Force stop agent**
    becomes available after five seconds if the turn is still unsettled.
 7. **New chat** confirms discarding content, ends the process, then returns to
    Start. Closing the panel or unloading the plugin discards client content and
@@ -123,4 +121,4 @@ command -v kiro-cli
 
 The [authentication guide](https://kiro.dev/docs/getting-started/authentication/)
 documents the terminal login flow. The plugin neither installs nor authenticates
-Kiro. The downloaded release still needs V3 validation.
+Kiro.

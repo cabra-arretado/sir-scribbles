@@ -1,32 +1,32 @@
 import { EventEmitter } from 'node:events';
 import { AcpSession } from './acp.js';
-import { launchKiro, validateExecutable, terminateOwnedProcess } from './process.js';
+import { launchAgent, validateExecutable, terminateOwnedProcess } from './process.js';
 import { OperationalError, LIMITS, mergeDefined } from './limits.js';
 import { composePrompt } from './draft.js';
 
 export const ERROR_TEXT = {
-  ABSOLUTE_EXECUTABLE_REQUIRED: 'Choose the absolute path to your installed Kiro executable.',
-  EXECUTABLE_NOT_AVAILABLE: 'That file is unavailable or not executable. Change the Kiro path in Settings → Community plugins → Sir Scribbles, then start a new chat to retry.',
+  ABSOLUTE_EXECUTABLE_REQUIRED: 'Choose the absolute path to your installed agent executable.',
+  EXECUTABLE_NOT_AVAILABLE: 'That file is unavailable or not executable. Change the agent path in Settings → Community plugins → Sir Scribbles, then start a new chat to retry.',
   MACOS_REQUIRED: 'This preview supports macOS desktop only.',
-  STARTUP_TIMEOUT: 'Kiro did not become ready within 15 seconds. Check your CLI login and V3 installation, then start a new chat.',
-  INCOMPATIBLE_PROTOCOL: 'Kiro returned an unsupported protocol. Check your V3 installation.',
-  AGENT_REQUEST_FAILED: 'Kiro could not complete the request. Check login in your terminal and V3 compatibility. Previous execution may have occurred.',
+  STARTUP_TIMEOUT: 'The agent did not become ready within 15 seconds. Check its login and installation, then start a new chat.',
+  INCOMPATIBLE_PROTOCOL: 'The agent returned an unsupported protocol. Check its installation and version.',
+  AGENT_REQUEST_FAILED: 'The agent could not complete the request. Check its login in your terminal and its version. Previous execution may have occurred.',
   SELECT_TEXT_FIRST: 'Select text in a Markdown note first, then attach it here.',
   OPEN_NOTE_FIRST: 'Open a Markdown note first, then attach it here.',
   PROMPT_LIMIT: 'The prompt and attached context exceed 128 KiB. Shorten the draft or attach less context; nothing was sent.',
   EMPTY_PROMPT: 'Write a prompt or attach context first.',
-  FRAME_LIMIT: 'Kiro exceeded the incoming message limit. The connection was ended.',
+  FRAME_LIMIT: 'The agent exceeded the incoming message limit. The connection was ended.',
   SESSION_LIMIT: 'This conversation exceeded its memory budget. Start a new chat.',
-  PERMISSION_LIMIT: 'Kiro exceeded the approval queue limit. The connection was ended.',
-  CLEANUP_UNCERTAIN: 'Kiro cleanup could not be confirmed. Force stop again before starting another process.',
-  TRANSPORT_LOST: 'The Kiro connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.',
-  PROCESS_EXITED: 'Kiro exited. Check your terminal login and V3 installation. The previous task outcome may be uncertain.',
-  PROCESS_FAILED: 'Kiro could not start. Check the executable, CLI login and V3 installation.',
+  PERMISSION_LIMIT: 'The agent exceeded the approval queue limit. The connection was ended.',
+  CLEANUP_UNCERTAIN: 'Agent cleanup could not be confirmed. Force stop again before starting another process.',
+  TRANSPORT_LOST: 'The agent connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.',
+  PROCESS_EXITED: 'The agent exited. Check its login and installation in your terminal. The previous task outcome may be uncertain.',
+  PROCESS_FAILED: 'The agent could not start. Check the executable, its login and installation.',
 };
-export const errorText = code => ERROR_TEXT[code] ?? `Kiro stopped (${code || 'UNKNOWN_ERROR'}). The previous task outcome may be uncertain. Start a new chat.`;
+export const errorText = code => ERROR_TEXT[code] ?? `The agent stopped (${code || 'UNKNOWN_ERROR'}). The previous task outcome may be uncertain. Start a new chat.`;
 
 export class ChatController extends EventEmitter {
-  constructor(cwd, { launch = launchKiro, validate = validateExecutable, createSession = child => new AcpSession(child), getSourcePath = () => '' } = {}) {
+  constructor(cwd, { launch = launchAgent, validate = validateExecutable, createSession = child => new AcpSession(child), getSourcePath = () => '' } = {}) {
     super();
     this.cwd = cwd;
     this.launch = launch;
@@ -169,7 +169,7 @@ export class ChatController extends EventEmitter {
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== 'ready') return;
       if (this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile) {
-        this.error = 'The draft changed while Kiro was starting. Review it and send again.';
+        this.error = 'The draft changed while the agent was starting. Review it and send again.';
         this.changed();
         return;
       }

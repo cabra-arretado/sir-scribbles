@@ -4,7 +4,8 @@ import { access, stat } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { LIMITS, OperationalError } from './limits.js';
 
-export const KIRO_ARGS = Object.freeze(['acp', '--agent-engine=v3', '--auth-method=cli']);
+// Kiro CLI (V3) is currently the only supported ACP agent; these are its launch arguments.
+export const AGENT_ARGS = Object.freeze(['acp', '--agent-engine=v3', '--auth-method=cli']);
 
 export async function validateExecutable(path) {
   if (typeof path !== 'string' || !isAbsolute(path)) throw new OperationalError('ABSOLUTE_EXECUTABLE_REQUIRED');
@@ -16,9 +17,9 @@ export async function validateExecutable(path) {
   }
 }
 
-export function launchKiro(executable, cwd) {
+export function launchAgent(executable, cwd) {
   if (process.platform !== 'darwin') throw new OperationalError('MACOS_REQUIRED');
-  return spawn(executable, [...KIRO_ARGS], {
+  return spawn(executable, [...AGENT_ARGS], {
     cwd,
     shell: false,
     detached: true,

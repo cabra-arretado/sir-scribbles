@@ -3,7 +3,7 @@ import { resolve, isAbsolute } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { AcpSession } from '../src/acp.js';
-import { launchKiro, validateExecutable } from '../src/process.js';
+import { launchAgent, validateExecutable } from '../src/process.js';
 import { OperationalError } from '../src/limits.js';
 
 // The spike deliberately displays content in the terminal, as JSON-escaped text.
@@ -16,7 +16,7 @@ function parseArgs(args) {
     const flag = args[index];
     if (flag === '--check') options.check = true;
     else if (flag === '--help') options.help = true;
-    else if (['--kiro', '--cwd'].includes(flag) && args[index + 1] && !args[index + 1].startsWith('--')) {
+    else if (['--agent', '--cwd'].includes(flag) && args[index + 1] && !args[index + 1].startsWith('--')) {
       options[flag.slice(2)] = args[++index];
     } else throw new OperationalError('INVALID_ARGUMENTS');
   }
@@ -58,20 +58,20 @@ async function close() {
   const result = await session?.close();
   if (result === false) process.exitCode = 1;
   display('exercise-counts', counts);
-  display('gate', 'NOT CERTIFIED. Confirm real action execution, denial, cancellation and cleanup with Kiro before release.');
+  display('gate', 'NOT CERTIFIED. Confirm real action execution, denial, cancellation and cleanup with the agent before release.');
 }
 
 try {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    process.stdout.write('Usage: npm run spike -- --kiro /absolute/path/kiro-cli --cwd /absolute/test/workspace [--check]\n');
+    process.stdout.write('Usage: npm run spike -- --agent /absolute/path/to/agent --cwd /absolute/test/workspace [--check]\n');
   } else {
-    if (!options.kiro || !options.cwd || !isAbsolute(options.cwd)) throw new OperationalError('KIRO_AND_ABSOLUTE_CWD_REQUIRED');
-    await validateExecutable(options.kiro); // File metadata only; no --version execution.
+    if (!options.agent || !options.cwd || !isAbsolute(options.cwd)) throw new OperationalError('AGENT_AND_ABSOLUTE_CWD_REQUIRED');
+    await validateExecutable(options.agent); // File metadata only; no --version execution.
     if (!(await stat(options.cwd)).isDirectory()) throw new OperationalError('DIRECTORY_REQUIRED');
     if (!options.check && !process.stdin.isTTY) throw new OperationalError('INTERACTIVE_TERMINAL_REQUIRED');
-    display('boundary', 'Kiro uses existing permissions, hooks, MCP servers, environment, network and history. The directory is not a sandbox.');
-    session = new AcpSession(launchKiro(options.kiro, resolve(options.cwd)));
+    display('boundary', 'The agent uses existing permissions, hooks, MCP servers, environment, network and history. The directory is not a sandbox.');
+    session = new AcpSession(launchAgent(options.agent, resolve(options.cwd)));
     session.on('state', state => display('state', state));
     session.on('failure', code => { if (code !== 'SESSION_CLOSED') { display('failure', code); process.exitCode = 1; input?.close(); } });
     session.on('cleanup', outcome => { display('cleanup', outcome); if (outcome === 'uncertain') process.exitCode = 1; });

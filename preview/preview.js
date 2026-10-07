@@ -11,17 +11,17 @@ class Fixture {
   removeFile() { this.file = null; this.changed(); }
   removeSelection() { this.selection = null; this.changed(); }
   activePermission() { return this.session.permissions.values().next().value ?? null; }
-  setError() { this.error = 'Preview only. No Kiro executable is launched.'; this.changed(); }
-  start() { this.state = 'ready'; this.identity = 'Kiro · UI fixture'; this.changed(); }
+  setError() { this.error = 'Preview only. No agent executable is launched.'; this.changed(); }
+  start() { this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.changed(); }
   newChat() { this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
-  send() { this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' }, { role: 'agent', text: 'This is an interactive UI preview. The actual plugin sends this prompt to your local Kiro process.' }); this.draft = ''; this.selection = null; this.file = null; this.changed(); }
+  send() { this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' }, { role: 'agent', text: 'This is an interactive UI preview. The actual plugin sends this prompt to your local agent process.' }); this.draft = ''; this.selection = null; this.file = null; this.changed(); }
   decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId === 'allow' ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
 const model = new Fixture();
 const selection = { path: 'Projects/Launch notes.md', from: 7, to: 7, text: 'Give the user a clear starting point, let them choose the context, and keep every action visible.' };
 const panel = new ChatPanel(document.getElementById('panel'), model, {
-  getPath: () => '/Users/you/.local/bin/kiro-cli', savePath: async () => {}, attachSelection: () => selection,
+  getPath: () => '/Users/you/.local/bin/agent', savePath: async () => {}, attachSelection: () => selection,
   attachFile: () => ({ kind: 'file', path: selection.path }),
   openNote: target => { model.error = `Preview note link: ${typeof target === 'string' ? target : target.path}. No vault is open in this fixture.`; model.changed(); },
   confirmReset: async () => window.confirm('Discard this preview chat?'), copyText: text => navigator.clipboard.writeText(text),

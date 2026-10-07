@@ -73,14 +73,14 @@ export class ChatPanel {
     this.empty.append(emptyMascot, this.el('h3', '', 'A little room to think.'),
       this.el('p', '', 'Ask about your work. Bring a selection from a note when it helps.'));
     this.startArea = this.el('section', 'sir-scribbles-start-area');
-    this.startArea.append(this.el('h4', '', 'Connect your local Kiro'));
+    this.startArea.append(this.el('h4', '', 'Connect your local agent'));
     this.path = this.el('input', 'sir-scribbles-path');
     this.path.type = 'text';
-    this.path.placeholder = '/absolute/path/to/kiro-cli';
-    this.path.setAttribute('aria-label', 'Kiro executable path');
+    this.path.placeholder = '/absolute/path/to/agent';
+    this.path.setAttribute('aria-label', 'Agent executable path');
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
-    this.start = this.button('Start Kiro', async () => {
+    this.start = this.button('Start agent', async () => {
       const saved = this.actions.getPath().trim();
       const executable = saved || this.path.value.trim();
       const generation = this.model.generation;
@@ -99,11 +99,11 @@ export class ChatPanel {
       }
     }, 'mod-cta sir-scribbles-primary');
     this.startArea.append(this.path,
-      this.el('p', 'sir-scribbles-caption', 'Kiro uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
+      this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       this.start);
-    this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Send your first prompt to start Kiro, or use Start Kiro. Change the path in Settings → Community plugins → Sir Scribbles.');
+    this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings → Community plugins → Sir Scribbles.');
     this.startArea.append(this.pathHelp);
-    this.empty.append(this.startArea, this.el('p', 'sir-scribbles-preview-label', 'Developer preview · Kiro V3 compatibility is unverified'));
+    this.empty.append(this.startArea, this.el('p', 'sir-scribbles-preview-label', 'Developer preview · Kiro CLI (V3) is currently the only supported agent'));
     this.transcript.append(this.empty);
     this.container.append(this.transcript);
 
@@ -134,7 +134,7 @@ export class ChatPanel {
       if (this.model.file) { this.model.removeFile(); return; }
       await this.attachContext('attachFile', 'OPEN_NOTE_FIRST');
     }, 'sir-scribbles-attach');
-    this.attachFile.title = 'Attach the current note path; Kiro can read the saved file';
+    this.attachFile.title = 'Attach the current note path; the agent can read the saved file';
     this.send = this.button('Send ↑', () => { void this.model.send(this.actions.getPath().trim()); }, 'mod-cta sir-scribbles-primary');
     attachments.append(this.attach, this.attachFile);
     toolbar.append(this.send);
@@ -142,10 +142,10 @@ export class ChatPanel {
     footer.append(composer);
     const controls = this.el('div', 'sir-scribbles-session-controls');
     this.stop = this.button('Stop', () => this.model.stop());
-    this.force = this.button('Force stop Kiro', () => { void this.model.forceStop(); }, 'sir-scribbles-danger');
+    this.force = this.button('Force stop agent', () => { void this.model.forceStop(); }, 'sir-scribbles-danger');
     this.shortcut = this.el('span', 'sir-scribbles-caption', 'Enter to send · Shift + Enter for a newline');
     controls.append(this.stop, this.force, this.shortcut);
-    footer.append(controls, this.el('p', 'sir-scribbles-boundary', 'Kiro may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox.'));
+    footer.append(controls, this.el('p', 'sir-scribbles-boundary', 'The agent may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox.'));
     this.container.append(footer);
   }
 
@@ -167,7 +167,7 @@ export class ChatPanel {
     const model = this.model;
     const canStart = model.state === 'not-started' && Boolean(this.actions.getPath().trim());
     this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection || model.file);
-    this.send.title = canStart ? 'Start Kiro and send this prompt' : 'Send prompt';
+    this.send.title = canStart ? 'Start the agent and send this prompt' : 'Send prompt';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());
@@ -216,7 +216,7 @@ export class ChatPanel {
       if (!row) {
         const root = this.el('article', `sir-scribbles-message sir-scribbles-${message.role}`);
         const header = this.el('div', 'sir-scribbles-message-header');
-        const label = this.el('span', '', message.role === 'user' ? 'You' : message.role === 'tool' ? 'Tool activity' : 'Kiro');
+        const label = this.el('span', '', message.role === 'user' ? 'You' : message.role === 'tool' ? 'Tool activity' : 'Agent');
         const timestamp = this.el('time', 'sir-scribbles-timestamp');
         const date = new Date(message.timestamp ?? Date.now());
         timestamp.dateTime = date.toISOString();

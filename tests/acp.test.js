@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { AcpSession, FrameReader } from '../src/acp.js';
 import { LIMITS } from '../src/limits.js';
-import { validateExecutable, KIRO_ARGS } from '../src/process.js';
+import { validateExecutable, AGENT_ARGS } from '../src/process.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/agent.js', import.meta.url));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -43,7 +43,7 @@ test('validates executable metadata without invocation and fixes launch argument
   await validateExecutable(process.execPath);
   await assert.rejects(validateExecutable('kiro-cli'), { code: 'ABSOLUTE_EXECUTABLE_REQUIRED' });
   await assert.rejects(validateExecutable('/does/not/exist'), { code: 'EXECUTABLE_NOT_AVAILABLE' });
-  assert.deepEqual(KIRO_ARGS, ['acp', '--agent-engine=v3', '--auth-method=cli']);
+  assert.deepEqual(AGENT_ARGS, ['acp', '--agent-engine=v3', '--auth-method=cli']);
 });
 
 test('negotiates disabled execution capabilities and sends ordered plain text', async t => {

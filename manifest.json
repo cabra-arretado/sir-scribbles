@@ -3,7 +3,7 @@
   "name": "Sir Scribbles",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
-  "description": "A small, ephemeral conversation with your local Kiro V3 CLI. macOS developer preview.",
+  "description": "A small, ephemeral conversation with a local ACP agent; Kiro CLI is currently the only supported agent. macOS developer preview.",
   "author": "Felipe Moura",
   "isDesktopOnly": true
 }

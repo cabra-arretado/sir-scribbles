@@ -15,4 +15,4 @@ createServer((request, response) => {
   if (!route) { response.writeHead(404); response.end(); return; }
   response.writeHead(200, { 'Content-Type': route[0], 'Cache-Control': 'no-store' });
   response.end(route[1]);
-}).listen(8787, '127.0.0.1', () => process.stdout.write('UI fixtures: http://127.0.0.1:8787 (no Kiro process)\n'));
+}).listen(8787, '127.0.0.1', () => process.stdout.write('UI fixtures: http://127.0.0.1:8787 (no agent process)\n'));

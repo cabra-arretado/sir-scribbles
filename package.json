@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Minimal macOS Obsidian sidebar for local Kiro V3",
+  "description": "Minimal macOS Obsidian sidebar for a local ACP agent",
   "engines": {
     "node": ">=22"
   },

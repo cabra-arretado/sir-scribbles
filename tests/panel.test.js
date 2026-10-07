@@ -22,14 +22,14 @@ function create(t) {
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 50));
 
-test('opening panel never starts Kiro and initial controls express state', t => {
+test('opening panel never starts the agent and initial controls express state', t => {
   const { panel, root, model } = create(t);
   assert.equal(model.session, null);
   assert.equal(panel.status.textContent, 'Not started');
   assert.equal(panel.start.disabled, false);
   assert.equal(panel.send.disabled, true);
   assert.equal(panel.stop.hidden, true);
-  assert.ok(root.textContent.includes('compatibility is unverified'));
+  assert.ok(root.textContent.includes('Kiro CLI (V3) is currently the only supported agent'));
 });
 
 test('HTML, remote-media syntax, terminal escapes and tool input render as inert text', t => {

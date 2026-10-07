@@ -27,7 +27,7 @@ class ResetModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
   onOpen() {
     this.titleEl.textContent = 'Start a new chat?';
-    this.contentEl.createEl('p', { text: 'This ends Kiro and discards the visible conversation, unsent prompt and selection. Kiro may keep its own history.' });
+    this.contentEl.createEl('p', { text: 'This ends the agent and discards the visible conversation, unsent prompt and selection. The agent may keep its own history.' });
     new Setting(this.contentEl)
       .addButton(button => button.setButtonText('Keep chat').onClick(() => this.close()))
       .addButton(button => button.setButtonText('Discard and start over').setCta().onClick(() => { this.accepted = true; this.close(); }));
@@ -89,7 +89,7 @@ class ScribblesView extends ItemView {
     this.plugin.cleanupPending = controller?.dispose() ?? Promise.resolve(true);
     const clean = await this.plugin.cleanupPending;
     if (clean) this.plugin.controller = null;
-    else new Notice('Kiro cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.', 0);
+    else new Notice('Agent cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.', 0);
     this.plugin.cleanupPending = null;
   }
 }
@@ -98,13 +98,13 @@ class ScribblesSettings extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
   display() {
     this.containerEl.empty();
-    this.containerEl.createEl('p', { text: 'macOS developer preview. Install and authenticate Kiro V3 in your terminal. Selecting a path does not run it.' });
+    this.containerEl.createEl('p', { text: 'macOS developer preview. Install and sign in to your ACP agent in your terminal; Kiro CLI (V3) is currently the only supported agent. Selecting a path does not run it.' });
     let path = this.plugin.executablePath;
     const status = this.containerEl.createEl('p', { attr: { role: 'status' } });
-    new Setting(this.containerEl).setName('Kiro executable').setDesc('Absolute path to the existing CLI executable.')
-      .addText(text => text.setPlaceholder('/absolute/path/to/kiro-cli').setValue(path).onChange(value => { path = value.trim(); }))
+    new Setting(this.containerEl).setName('Agent executable').setDesc('Absolute path to the existing CLI executable.')
+      .addText(text => text.setPlaceholder('/absolute/path/to/agent').setValue(path).onChange(value => { path = value.trim(); }))
       .addButton(button => button.setButtonText('Validate and save').onClick(async () => {
-        try { await validateExecutable(path); await this.plugin.savePath(path); status.textContent = 'Executable path saved. Kiro was not started.'; }
+        try { await validateExecutable(path); await this.plugin.savePath(path); status.textContent = 'Executable path saved. The agent was not started.'; }
         catch { status.textContent = 'Choose an existing executable using its absolute path.'; }
       }));
   }
@@ -155,7 +155,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.lastEditor = null;
     if (!this.shutdownPending) this.shutdownPending = (async () => {
       const clean = (await (this.cleanupPending ?? this.controller?.dispose())) ?? true;
-      if (!clean) new Notice('Kiro cleanup could not be confirmed on unload. Check the CLI process in your terminal.', 0);
+      if (!clean) new Notice('Agent cleanup could not be confirmed on unload. Check the CLI process in your terminal.', 0);
       return clean;
     })();
     return this.shutdownPending;

@@ -22,7 +22,7 @@ function run(args) {
 test('headless check exercises fixed launch, initialization and cleanup without certifying gate', {
   skip: process.platform !== 'darwin',
 }, async () => {
-  const result = await run(['--kiro', executable, '--cwd', cwd, '--check']);
+  const result = await run(['--agent', executable, '--cwd', cwd, '--check']);
   assert.equal(result.code, 0);
   assert.equal(result.stderr, '');
   const events = result.stdout.trim().split('\n').map(line => JSON.parse(line));
@@ -33,16 +33,16 @@ test('headless check exercises fixed launch, initialization and cleanup without 
 });
 
 test('interactive run requires a terminal before launching agent', async () => {
-  const result = await run(['--kiro', executable, '--cwd', cwd]);
+  const result = await run(['--agent', executable, '--cwd', cwd]);
   assert.equal(result.code, 1);
   assert.deepEqual(JSON.parse(result.stdout.trim()), { type: 'failure', value: 'INTERACTIVE_TERMINAL_REQUIRED' });
 });
 
 test('harness rejects arbitrary launch flags and relative cwd', async () => {
-  const arbitrary = await run(['--kiro', executable, '--cwd', cwd, '--trust-all-tools']);
+  const arbitrary = await run(['--agent', executable, '--cwd', cwd, '--trust-all-tools']);
   assert.equal(arbitrary.code, 1);
   assert.match(arbitrary.stdout, /INVALID_ARGUMENTS/);
-  const relative = await run(['--kiro', executable, '--cwd', '.']);
+  const relative = await run(['--agent', executable, '--cwd', '.']);
   assert.equal(relative.code, 1);
-  assert.match(relative.stdout, /KIRO_AND_ABSOLUTE_CWD_REQUIRED/);
+  assert.match(relative.stdout, /AGENT_AND_ABSOLUTE_CWD_REQUIRED/);
 });
