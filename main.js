@@ -757,6 +757,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
 };
 
 // src/draft.js
+var import_node_crypto = require("node:crypto");
 function captureSelection(view, eligible) {
   if (!view || !eligible(view) || !view.file || view.file.extension !== "md" || !view.editor) {
     throw new OperationalError("SELECT_TEXT_FIRST");
@@ -790,15 +791,16 @@ function captureFile(view, eligible) {
   composePrompt("", snapshot);
   return snapshot;
 }
-function composePrompt(text2, selection, file = null) {
+var selectionMarker = () => (0, import_node_crypto.randomBytes)(6).toString("hex");
+function composePrompt(text2, selection, file = null, marker = selectionMarker()) {
   const parts = [];
   if (text2.trim()) parts.push(text2);
   if (file) parts.push(`Attached note path: ${file.path}`);
   if (selection?.kind === "file") parts.push(`Attached note path: ${selection.path}`);
   else if (selection) parts.push(`Selected note text (${selection.path}, lines ${selection.from}\u2013${selection.to}):
---- BEGIN SELECTED TEXT ---
+--- BEGIN SELECTED TEXT ${marker} ---
 ${selection.text}
---- END SELECTED TEXT ---`);
+--- END SELECTED TEXT ${marker} ---`);
   const prompt = parts.join("\n\n");
   if (!prompt) throw new OperationalError("EMPTY_PROMPT");
   if (Buffer.byteLength(prompt, "utf8") > LIMITS.prompt) throw new OperationalError("PROMPT_LIMIT");

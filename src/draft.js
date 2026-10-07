@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { LIMITS, OperationalError } from './limits.js';
 
 export function captureSelection(view, eligible) {
@@ -33,12 +34,16 @@ export function captureFile(view, eligible) {
   return snapshot;
 }
 
-export function composePrompt(text, selection, file = null) {
+// Note text cannot know a per-prompt marker in advance, so it cannot close the
+// quoted block early and continue as if the user had written the rest.
+const selectionMarker = () => randomBytes(6).toString('hex');
+
+export function composePrompt(text, selection, file = null, marker = selectionMarker()) {
   const parts = [];
   if (text.trim()) parts.push(text);
   if (file) parts.push(`Attached note path: ${file.path}`);
   if (selection?.kind === 'file') parts.push(`Attached note path: ${selection.path}`);
-  else if (selection) parts.push(`Selected note text (${selection.path}, lines ${selection.from}–${selection.to}):\n--- BEGIN SELECTED TEXT ---\n${selection.text}\n--- END SELECTED TEXT ---`);
+  else if (selection) parts.push(`Selected note text (${selection.path}, lines ${selection.from}–${selection.to}):\n--- BEGIN SELECTED TEXT ${marker} ---\n${selection.text}\n--- END SELECTED TEXT ${marker} ---`);
   const prompt = parts.join('\n\n');
   if (!prompt) throw new OperationalError('EMPTY_PROMPT');
   if (Buffer.byteLength(prompt, 'utf8') > LIMITS.prompt) throw new OperationalError('PROMPT_LIMIT');
