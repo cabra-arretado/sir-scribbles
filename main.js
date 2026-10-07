@@ -526,7 +526,8 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.sessionId = null;
     this.cwd = null;
     this.configOptions = [];
-    this.configVersion = 0;
+    this.configSeq = 0;
+    this.configStamp = 0;
     this.startupUpdates = [];
     this.pending = /* @__PURE__ */ new Map();
     this.expired = /* @__PURE__ */ new Map();
@@ -663,9 +664,9 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.rememberToolCall(update);
     this.emit("update", update);
   }
-  setConfigOptions(input) {
+  setConfigOptions(input, stamp = ++this.configSeq) {
     this.configOptions = sanitizeConfigOptions(input, this.limits);
-    this.configVersion++;
+    this.configStamp = stamp;
     this.emit("config-options", this.configOptions);
   }
   rememberToolCall(update) {
@@ -861,10 +862,10 @@ var AcpSession = class extends import_node_events.EventEmitter {
     const option = this.configOptions.find((entry) => entry.id === configId);
     if (!option?.options.some((entry) => entry.value === value)) throw new OperationalError("CONFIG_VALUE_UNKNOWN");
     let result;
-    const version = this.configVersion;
+    const seq = ++this.configSeq;
     const late = (result2) => {
-      if (!this.transportClosed && this.configVersion === version && isRecord(result2) && Array.isArray(result2.configOptions)) {
-        this.setConfigOptions(result2.configOptions);
+      if (!this.transportClosed && seq > this.configStamp && isRecord(result2) && Array.isArray(result2.configOptions)) {
+        this.setConfigOptions(result2.configOptions, seq);
       }
     };
     try {
@@ -875,7 +876,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     }
     if (this.transportClosed) throw new OperationalError("TRANSPORT_CLOSED");
     if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError("CONFIG_REJECTED");
-    this.setConfigOptions(result.configOptions);
+    this.setConfigOptions(result.configOptions, seq);
     return this.configOptions;
   }
   stop() {
