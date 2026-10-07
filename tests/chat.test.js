@@ -420,3 +420,46 @@ test('an agent that lists but cannot reopen chats keeps the connected picker and
   assert.equal(controller.state, 'connected', 'a local refusal does not fail a healthy agent');
   assert.match(controller.error, /cannot reopen/);
 });
+
+test('Start agent offers past chats in the empty chat; choosing one restarts into it and keeps the draft', async () => {
+  const { controller, session, launches } = create();
+  session.sessionId = 'fresh';
+  session.listSessions = async cwd => [{ sessionId: 'fresh', title: '', updatedAt: 2, cwd }, { sessionId: 'old', title: 'Older chat', updatedAt: 1, cwd }];
+  await controller.start('/fixture', { listPast: true });
+  assert.equal(controller.state, 'ready');
+  assert.deepEqual(controller.recent.entries.map(entry => entry.sessionId), ['old']);
+  controller.setDraft('keep me');
+  await controller.reopen('/fixture', 'old', 'Older chat');
+  assert.equal(launches(), 2);
+  assert.equal(session.opened, 'old');
+  assert.equal(controller.state, 'ready');
+  assert.equal(controller.title, 'Older chat');
+  assert.equal(controller.recent, null);
+  assert.equal(controller.draft, 'keep me');
+});
+
+test('past chats are not offered once the chat has a message, nor reopened over one', async () => {
+  const { controller, session, launches } = create();
+  let finish;
+  session.listSessions = cwd => new Promise(resolve => { finish = () => resolve([{ sessionId: 'old', title: 'Older chat', updatedAt: 1, cwd }]); });
+  const starting = controller.start('/fixture', { listPast: true });
+  await new Promise(resolve => setImmediate(resolve));
+  controller.setDraft('hello');
+  const sending = controller.send('/fixture');
+  finish();
+  await starting;
+  assert.equal(controller.recent, null);
+  await controller.reopen('/fixture', 'old');
+  assert.equal(launches(), 1);
+  session.complete();
+  await sending;
+});
+
+test('a refused listing after Start agent offers nothing and leaves the chat usable', async () => {
+  const { controller, session } = create();
+  session.listSessions = async () => { throw new OperationalError('HISTORY_NOT_SUPPORTED'); };
+  await controller.start('/fixture', { listPast: true });
+  assert.equal(controller.state, 'ready');
+  assert.equal(controller.recent, null);
+  assert.equal(controller.error, '');
+});
