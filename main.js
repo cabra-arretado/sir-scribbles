@@ -292,7 +292,11 @@ var LIMITS = Object.freeze({
   permissions: 16,
   configOptions: 32,
   configValues: 256,
+  chats: 5,
+  historyEntries: 100,
+  historyPages: 5,
   startupMs: 15e3,
+  loadMs: 6e4,
   cancellationMs: 5e3,
   shutdownMs: 2e3
 });
@@ -688,7 +692,9 @@ var AcpSession = class extends import_node_events.EventEmitter {
     }
     this.emit("permissions-cancelled");
   }
-  async start(cwd) {
+  // Initialize only. A chat is then opened, new or past, with open(), so past
+  // chats can be listed without creating an empty session first.
+  async connect() {
     if (this.state !== "not-started") throw new OperationalError("START_NOT_AVAILABLE");
     this.setState("starting");
     this.startupTimer = setTimeout(() => this.fail("STARTUP_TIMEOUT"), this.limits.startupMs);
@@ -701,14 +707,72 @@ var AcpSession = class extends import_node_events.EventEmitter {
       if (!isRecord(initialized) || initialized.protocolVersion !== 1 || !isRecord(initialized.agentCapabilities)) {
         throw new OperationalError("INCOMPATIBLE_PROTOCOL");
       }
+      if (this.transportClosed) throw new OperationalError("TRANSPORT_CLOSED");
       this.identity = initialized.agentInfo ?? null;
       this.capabilities = initialized.agentCapabilities;
-      const session = await this.request("session/new", { cwd, mcpServers: [] });
-      if (!isRecord(session) || typeof session.sessionId !== "string" || !session.sessionId) {
-        throw new OperationalError("INVALID_SESSION");
+      clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+      this.setState("connected");
+      return { identity: this.identity, capabilities: this.capabilities };
+    } catch (error) {
+      this.fail(error.code || "START_FAILED");
+      if (this.cleanup) await this.cleanup;
+      throw error;
+    }
+  }
+  canList() {
+    return isRecord(this.capabilities?.sessionCapabilities) && isRecord(this.capabilities.sessionCapabilities.list);
+  }
+  canLoad() {
+    return this.capabilities?.loadSession === true;
+  }
+  // Past chats for this directory, newest first. A refused listing leaves the
+  // agent usable; entries from other directories or without an ID are dropped.
+  async listSessions(cwd) {
+    if (!["connected", "ready"].includes(this.state)) throw new OperationalError("HISTORY_NOT_AVAILABLE");
+    if (!this.canList()) throw new OperationalError("HISTORY_NOT_SUPPORTED");
+    const entries = [];
+    let cursor;
+    for (let page = 0; page < this.limits.historyPages && entries.length < this.limits.historyEntries; page++) {
+      let result;
+      try {
+        result = await this.request("session/list", cursor ? { cwd, cursor } : { cwd });
+      } catch (error) {
+        throw new OperationalError(this.transportClosed ? error.code : "HISTORY_UNAVAILABLE");
+      }
+      if (!isRecord(result) || !Array.isArray(result.sessions)) throw new OperationalError("HISTORY_UNAVAILABLE");
+      for (const item of result.sessions) {
+        if (entries.length >= this.limits.historyEntries) break;
+        if (!isRecord(item) || !label(item.sessionId) || item.cwd !== cwd || entries.some((entry) => entry.sessionId === item.sessionId)) continue;
+        const updated = typeof item.updatedAt === "string" ? Date.parse(item.updatedAt) : NaN;
+        entries.push({ sessionId: item.sessionId, title: label(item.title, 512) ? item.title : "", updatedAt: Number.isFinite(updated) ? updated : null });
+      }
+      if (!label(result.nextCursor)) break;
+      cursor = result.nextCursor;
+    }
+    return entries.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }
+  // Opens a new chat, or loads a past one. Loading replays its history as
+  // ordinary session updates before the response arrives.
+  async open(cwd, sessionId = null) {
+    if (this.state !== "connected") throw new OperationalError("START_NOT_AVAILABLE");
+    if (sessionId !== null && (!this.canLoad() || !label(sessionId))) throw new OperationalError("LOAD_NOT_SUPPORTED");
+    this.setState("starting");
+    this.startupTimer = setTimeout(() => this.fail("STARTUP_TIMEOUT"), sessionId ? this.limits.loadMs : this.limits.startupMs);
+    try {
+      let session;
+      if (sessionId) {
+        this.sessionId = sessionId;
+        session = await this.request("session/load", { sessionId, cwd, mcpServers: [] });
+        if (!isRecord(session)) throw new OperationalError("INVALID_SESSION");
+      } else {
+        session = await this.request("session/new", { cwd, mcpServers: [] });
+        if (!isRecord(session) || typeof session.sessionId !== "string" || !session.sessionId) {
+          throw new OperationalError("INVALID_SESSION");
+        }
       }
       if (this.transportClosed) throw new OperationalError("TRANSPORT_CLOSED");
-      this.sessionId = session.sessionId;
+      this.sessionId = sessionId ?? session.sessionId;
       this.configOptions = sanitizeConfigOptions(session.configOptions, this.limits);
       const startupUpdates = this.startupUpdates;
       this.startupUpdates = [];
@@ -724,6 +788,10 @@ var AcpSession = class extends import_node_events.EventEmitter {
       if (this.cleanup) await this.cleanup;
       throw error;
     }
+  }
+  async start(cwd, sessionId = null) {
+    await this.connect();
+    return this.open(cwd, sessionId);
   }
   async prompt(text2) {
     if (this.state !== "ready") throw new OperationalError("PROMPT_NOT_AVAILABLE");
@@ -770,7 +838,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     return this.configOptions;
   }
   stop() {
-    if (this.state === "starting") {
+    if (["starting", "connected"].includes(this.state)) {
       this.close();
       return;
     }
@@ -888,7 +956,14 @@ var ERROR_TEXT = {
   PROCESS_EXITED: "The agent exited. Check its login and installation in your terminal. The previous task outcome may be uncertain.",
   PROCESS_FAILED: "The agent could not start. Check the executable, its login and installation.",
   CONFIG_REJECTED: "The agent did not change the model. It keeps the previous one.",
-  CONFIG_VALUE_UNKNOWN: "The agent no longer offers that model. Choose another one."
+  CONFIG_VALUE_UNKNOWN: "The agent no longer offers that model. Choose another one.",
+  HISTORY_NOT_SUPPORTED: "This agent cannot list past chats. Start a new chat instead.",
+  HISTORY_UNAVAILABLE: "The agent could not list past chats. Try again, or start a new chat.",
+  LOAD_NOT_SUPPORTED: "This agent cannot reopen past chats. Start a new chat instead."
+};
+var titleOf = (text2) => {
+  const line = text2.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
+  return line.length > 48 ? `${line.slice(0, 47)}\u2026` : line;
 };
 var errorText = (code2) => ERROR_TEXT[code2] ?? `The agent stopped (${code2 || "UNKNOWN_ERROR"}). The previous task outcome may be uncertain. Start a new chat.`;
 var ChatController = class extends import_node_events2.EventEmitter {
@@ -917,6 +992,9 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.disposed = false;
     this.resetting = false;
     this.uiBytes = 0;
+    this.title = "";
+    this.history = null;
+    this.loading = false;
   }
   changed() {
     this.emit("change");
@@ -953,7 +1031,8 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.error = errorText(code2);
     this.changed();
   }
-  async start(executable) {
+  // Launches the agent and initializes it, without opening a chat yet.
+  async connect(executable) {
     if (this.disposed || this.resetting || this.state !== "not-started" || this.session) return;
     const generation = ++this.generation;
     this.state = "starting";
@@ -1015,16 +1094,71 @@ var ChatController = class extends import_node_events2.EventEmitter {
           this.changed();
         }
       });
-      const initialized = await session.start(this.cwd);
+      const initialized = await session.connect();
       if (live()) {
         this.identity = [initialized.identity?.title ?? initialized.identity?.name, initialized.identity?.version].filter((value) => typeof value === "string").join(" \xB7 ");
-        this.configOptions = initialized.configOptions ?? [];
         this.changed();
       }
     } catch (error) {
       if (!this.disposed && generation === this.generation) {
         this.state = this.session ? "failed" : "not-started";
         this.setError(error.code || "PROCESS_FAILED");
+      }
+    }
+  }
+  async start(executable) {
+    await this.connect(executable);
+    if (this.state === "connected") await this.open();
+  }
+  // Lists this vault's past chats so the user can reopen one. Starts the
+  // agent when needed; the chat itself is opened only on a choice.
+  async browse(executable = "") {
+    if (this.disposed || this.resetting || this.history?.pending) return;
+    if (this.state === "not-started") {
+      if (!executable) return;
+      await this.connect(executable);
+    }
+    if (this.state !== "connected" || this.disposed || this.resetting) return;
+    const session = this.session;
+    const generation = this.generation;
+    this.history = { pending: true };
+    this.error = "";
+    this.changed();
+    let history;
+    try {
+      history = { entries: await session.listSessions(this.cwd) };
+    } catch (error) {
+      history = { error: errorText(error.code) };
+    }
+    if (generation !== this.generation || this.disposed || this.state !== "connected") return;
+    this.history = history;
+    this.changed();
+  }
+  // Opens a new chat, or reopens a past one by its session ID.
+  async open(sessionId = null, title = "") {
+    if (this.disposed || this.resetting || this.state !== "connected" || this.history?.pending) return;
+    const session = this.session;
+    const generation = this.generation;
+    const live = () => !this.disposed && generation === this.generation;
+    this.loading = Boolean(sessionId);
+    if (sessionId) this.title = title;
+    this.error = "";
+    this.changed();
+    try {
+      const opened = await session.open(this.cwd, sessionId);
+      if (live()) {
+        this.history = null;
+        this.configOptions = opened.configOptions ?? [];
+      }
+    } catch (error) {
+      if (live()) {
+        this.state = "failed";
+        this.setError(error.code || "START_FAILED");
+      }
+    } finally {
+      if (live()) {
+        this.loading = false;
+        this.changed();
       }
     }
   }
@@ -1037,12 +1171,18 @@ var ChatController = class extends import_node_events2.EventEmitter {
     return true;
   }
   update(update) {
-    if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text" && typeof update.content.text === "string") {
+    const kind = update.sessionUpdate;
+    const role = kind === "agent_message_chunk" ? "agent" : kind === "user_message_chunk" && this.loading ? "user" : "";
+    if (role && update.content?.type === "text" && typeof update.content.text === "string") {
       const text2 = update.content.text;
       if (!this.retainUi(Buffer.byteLength(text2))) return;
       const last = this.messages.at(-1);
-      if (last?.role === "agent") last.text += text2;
-      else this.messages.push({ role: "agent", text: text2, timestamp: Date.now(), sourcePath: this.turnSourcePath });
+      const messageId = typeof update.messageId === "string" ? update.messageId : void 0;
+      if (last?.role === role && last.messageId === messageId) last.text += text2;
+      else this.messages.push({ role, text: text2, messageId, timestamp: this.loading ? null : Date.now(), sourcePath: this.turnSourcePath });
+      if (role === "user" && !this.title) this.title = titleOf(text2);
+    } else if (kind === "session_info_update" && typeof update.title === "string" && update.title.trim()) {
+      this.title = titleOf(update.title);
     } else if (["tool_call", "tool_call_update"].includes(update.sessionUpdate) && typeof update.toolCallId === "string") {
       const previous = this.tools.get(update.toolCallId);
       const data = mergeDefined(mergeDefined({}, previous?.data ?? {}), update);
@@ -1052,7 +1192,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
         previous.data = data;
         previous.text = text2;
       } else {
-        const entry = { role: "tool", data, text: text2, timestamp: Date.now() };
+        const entry = { role: "tool", data, text: text2, timestamp: this.loading ? null : Date.now() };
         this.tools.set(update.toolCallId, entry);
         this.messages.push(entry);
       }
@@ -1060,7 +1200,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.changed();
   }
   async send(executable = "") {
-    if (this.resetting || this.disposed || this.configPending || !["not-started", "ready"].includes(this.state)) return;
+    if (this.resetting || this.disposed || this.configPending || this.history?.pending || !["not-started", "connected", "ready"].includes(this.state)) return;
     if (this.state === "not-started" && !executable) return;
     let prompt;
     try {
@@ -1073,8 +1213,8 @@ var ChatController = class extends import_node_events2.EventEmitter {
     const originalSelection = this.selection;
     const originalFile = this.file;
     const sourcePath = this.selection?.path ?? this.file?.path ?? this.getSourcePath();
-    if (this.state === "not-started") {
-      const starting = this.start(executable);
+    if (this.state !== "ready") {
+      const starting = this.state === "connected" ? this.open() : this.start(executable);
       const startupGeneration = this.generation;
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== "ready") return;
@@ -1088,6 +1228,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     const generation = this.generation;
     if (!this.retainUi(Buffer.byteLength(prompt))) return;
     this.turnSourcePath = sourcePath;
+    if (!this.title) this.title = titleOf(originalDraft) || titleOf(sourcePath);
     this.messages.push({ role: "user", text: prompt, timestamp: Date.now() });
     this.draft = "";
     this.selection = null;
@@ -1141,7 +1282,9 @@ var ChatController = class extends import_node_events2.EventEmitter {
     }
   }
   stop() {
-    if (this.state === "starting" && !this.session) {
+    if (this.state === "connected") {
+      void this.newChat();
+    } else if (this.state === "starting" && !this.session) {
       ++this.generation;
       this.state = "not-started";
       this.changed();
@@ -1199,6 +1342,9 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.error = "";
     this.cleanup = "";
     this.uiBytes = 0;
+    this.title = "";
+    this.history = null;
+    this.loading = false;
     this.forceAvailable = false;
     this.resetting = false;
     this.state = "not-started";
@@ -1227,6 +1373,9 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.error = errorText("CLEANUP_UNCERTAIN");
   }
 };
+
+// src/tabs.js
+var import_node_events3 = require("node:events");
 
 // node_modules/mdurl/index.mjs
 var mdurl_exports = {};
@@ -6460,6 +6609,7 @@ var ICON_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzen
 var STATES = {
   "not-started": "Not started",
   starting: "Starting",
+  connected: "Choose a chat",
   ready: "Ready",
   working: "Working",
   "waiting-for-approval": "Waiting for approval",
@@ -6481,6 +6631,7 @@ var ChatPanel = class {
     this.lastSelection = void 0;
     this.lastPath = null;
     this.lastModel = null;
+    this.lastHistory = void 0;
     this.streaming = /* @__PURE__ */ new Set();
     this.frame = null;
     this.lastFrame = 0;
@@ -6529,11 +6680,14 @@ var ChatPanel = class {
     this.status = this.el("span", "sir-scribbles-status");
     this.status.setAttribute("role", "status");
     this.identity = this.el("span", "sir-scribbles-identity");
-    this.reset = this.iconButton("plus", "New chat", async () => {
-      if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file) && !await this.actions.confirmReset()) return;
-      await this.model.newChat();
-    }, "sir-scribbles-reset");
-    header.append(mascot, this.status, this.identity, this.reset);
+    header.append(mascot, this.status, this.identity);
+    if (this.actions.confirmReset) {
+      this.reset = this.iconButton("plus", "New chat", async () => {
+        if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file) && !await this.actions.confirmReset()) return;
+        await this.model.newChat();
+      }, "sir-scribbles-reset");
+      header.append(this.reset);
+    }
     this.container.append(header);
     this.error = this.el("div", "sir-scribbles-error");
     this.error.setAttribute("role", "alert");
@@ -6559,27 +6713,14 @@ var ChatPanel = class {
     this.path.setAttribute("aria-label", "Agent executable path");
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
-    this.start = this.button("Start agent", async () => {
-      const saved = this.actions.getPath().trim();
-      const executable = saved || this.path.value.trim();
-      const generation = this.model.generation;
-      this.startPending = true;
-      this.start.disabled = true;
-      try {
-        if (!saved) await this.actions.savePath(executable);
-        if (this.disposed || generation !== this.model.generation) return;
-        await this.model.start(executable);
-      } catch {
-        if (!this.disposed && generation === this.model.generation) this.model.setError("EXECUTABLE_NOT_AVAILABLE");
-      } finally {
-        this.startPending = false;
-        if (!this.disposed) this.render();
-      }
-    }, "mod-cta sir-scribbles-primary");
+    this.start = this.button("Start agent", () => this.launch("start"), "mod-cta sir-scribbles-primary");
+    this.browse = this.button("Open a past chat", () => this.launch("browse"), "sir-scribbles-secondary");
+    const launchRow = this.el("div", "sir-scribbles-launch");
+    launchRow.append(this.start, this.browse);
     this.startArea.append(
       this.path,
       this.el("p", "sir-scribbles-caption", "The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
-      this.start
+      launchRow
     );
     this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
     this.startArea.append(this.pathHelp);
@@ -6588,7 +6729,9 @@ var ChatPanel = class {
       this.el("p", "sir-scribbles-footnote", "The agent may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox."),
       this.el("p", "sir-scribbles-footnote", "Developer preview \xB7 Kiro CLI (V3) is currently the only supported agent")
     );
-    this.transcript.append(this.empty);
+    this.historyArea = this.el("section", "sir-scribbles-history");
+    this.historyArea.setAttribute("aria-label", "Past chats");
+    this.transcript.append(this.historyArea, this.empty);
     this.container.append(this.transcript);
     this.permissionArea = this.el("section", "sir-scribbles-permission-area");
     this.permissionArea.setAttribute("aria-label", "Action requiring permission");
@@ -6640,6 +6783,24 @@ var ChatPanel = class {
     footer.append(composer);
     this.container.append(footer);
   }
+  // Start a new chat, or start the agent to list past ones.
+  async launch(method) {
+    const saved = this.actions.getPath().trim();
+    const executable = saved || this.path.value.trim();
+    const generation = this.model.generation;
+    this.startPending = true;
+    this.renderControls();
+    try {
+      if (!saved) await this.actions.savePath(executable);
+      if (this.disposed || generation !== this.model.generation) return;
+      await this.model[method](executable);
+    } catch {
+      if (!this.disposed && generation === this.model.generation) this.model.setError("EXECUTABLE_NOT_AVAILABLE");
+    } finally {
+      this.startPending = false;
+      if (!this.disposed) this.render();
+    }
+  }
   fitComposer() {
     this.composer.style.height = "auto";
     if (this.composer.scrollHeight) this.composer.style.height = `${this.composer.scrollHeight}px`;
@@ -6662,14 +6823,15 @@ var ChatPanel = class {
   }
   renderControls() {
     const model = this.model;
-    const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim());
-    this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || model.configPending || !(model.draft.trim() || model.selection || model.file);
-    this.send.title = canStart ? "Start the agent and send (Enter)" : "Send (Enter)";
+    const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim()) || model.state === "connected";
+    this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || model.configPending || Boolean(model.history?.pending) || !(model.draft.trim() || model.selection || model.file);
+    this.send.title = canStart ? "Start a new chat and send (Enter)" : "Send (Enter)";
     this.start.disabled = model.state !== "not-started" || model.resetting || this.startPending;
+    this.browse.disabled = this.start.disabled;
     this.path.disabled = model.state !== "not-started" || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());
     this.pathHelp.hidden = !this.path.hidden;
-    this.reset.disabled = model.resetting || model.disposed;
+    if (this.reset) this.reset.disabled = model.resetting || model.disposed;
     this.attach.disabled = model.resetting || model.disposed;
     this.attachFile.disabled = model.resetting || model.disposed;
     this.attachFile.setAttribute("aria-pressed", String(Boolean(model.file)));
@@ -6697,7 +6859,7 @@ var ChatPanel = class {
     if (this.lastPath !== path && this.document.activeElement !== this.path) this.path.value = path;
     this.lastPath = path;
     this.startArea.hidden = model.state !== "not-started";
-    this.empty.hidden = model.messages.length > 0;
+    this.empty.hidden = model.messages.length > 0 || model.state === "connected" || model.loading;
     if (this.composer.value !== model.draft) {
       this.composer.value = model.draft;
       this.fitComposer();
@@ -6707,6 +6869,48 @@ var ChatPanel = class {
     this.renderSelection();
     this.renderPermission();
     this.renderModel();
+    this.renderHistory();
+  }
+  // Past chats for this vault, shown after the agent starts for browsing.
+  renderHistory() {
+    const model = this.model;
+    const history = model.state === "connected" && !model.loading ? model.history : null;
+    if (history === this.lastHistory) return;
+    this.lastHistory = history;
+    this.historyArea.replaceChildren();
+    this.historyArea.hidden = !history;
+    if (!history) return;
+    this.historyArea.append(this.el("h4", "", "Past chats in this vault"));
+    if (history.pending) this.historyArea.append(this.el("p", "sir-scribbles-caption", "Asking the agent for past chats\u2026"));
+    else if (history.error) this.historyArea.append(this.el("p", "sir-scribbles-caption", history.error));
+    else if (!history.entries.length) this.historyArea.append(this.el("p", "sir-scribbles-caption", "No past chats for this vault yet."));
+    else {
+      const list2 = this.el("ul", "sir-scribbles-history-list");
+      for (const entry of history.entries) {
+        const item = this.el("li");
+        const title = entry.title || "Untitled chat";
+        const button = this.button("", () => {
+          void model.open(entry.sessionId, entry.title);
+        }, "sir-scribbles-history-item");
+        button.append(this.el("span", "sir-scribbles-history-title", title));
+        if (entry.updatedAt !== null) {
+          const date = new Date(entry.updatedAt);
+          const time = this.el("time", "sir-scribbles-history-date", date.toLocaleDateString([], { month: "short", day: "numeric" }));
+          time.dateTime = date.toISOString();
+          time.title = date.toLocaleString();
+          button.append(time);
+        }
+        button.title = title;
+        item.append(button);
+        list2.append(item);
+      }
+      this.historyArea.append(list2);
+    }
+    const fresh = this.button("Start a new chat", () => {
+      void model.open();
+    }, "sir-scribbles-secondary");
+    fresh.disabled = Boolean(history.pending);
+    this.historyArea.append(fresh);
   }
   // Agents replace the whole option list on every change, so a new object
   // means new choices; the current value is synced on every render.
@@ -6763,12 +6967,15 @@ var ChatPanel = class {
         const root = this.el("article", `sir-scribbles-message sir-scribbles-${message.role}`);
         const meta = this.el("div", "sir-scribbles-message-meta");
         const label2 = this.el("span", "sir-scribbles-sr-only", message.role === "user" ? "You" : message.role === "tool" ? "Tool activity" : "Agent");
-        const timestamp = this.el("time", "sir-scribbles-timestamp");
-        const date = new Date(message.timestamp ?? Date.now());
-        timestamp.dateTime = date.toISOString();
-        timestamp.textContent = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        timestamp.title = date.toLocaleString();
-        meta.append(timestamp, this.iconButton("copy", "Copy", async () => {
+        if (message.timestamp !== null) {
+          const timestamp = this.el("time", "sir-scribbles-timestamp");
+          const date = new Date(message.timestamp ?? Date.now());
+          timestamp.dateTime = date.toISOString();
+          timestamp.textContent = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          timestamp.title = date.toLocaleString();
+          meta.append(timestamp);
+        }
+        meta.append(this.iconButton("copy", "Copy", async () => {
           try {
             await this.actions.copyText(message.text);
           } catch {
@@ -6816,7 +7023,7 @@ var ChatPanel = class {
     if (!message.text.startsWith(row.target ?? "")) row.shown = 0;
     row.target = message.text;
     row.message = message;
-    if (!this.animate || !this.initialized) {
+    if (!this.animate || !this.initialized || this.model.loading) {
       row.shown = message.text.length;
       this.paintReply(row);
       return;
@@ -6963,6 +7170,189 @@ var ChatPanel = class {
   }
 };
 
+// src/tabs.js
+var BUSY = ["starting", "working", "waiting-for-approval", "stopping"];
+var ChatTabs = class extends import_node_events3.EventEmitter {
+  constructor(createChat, limit = LIMITS.chats) {
+    super();
+    this.createChat = createChat;
+    this.limit = limit;
+    this.chats = [];
+    this.active = null;
+    this.disposed = false;
+    this.listener = () => this.emit("change");
+  }
+  get full() {
+    return this.chats.length >= this.limit;
+  }
+  add() {
+    if (this.disposed || this.full) return null;
+    const chat = this.createChat();
+    chat.on("change", this.listener);
+    this.chats.push(chat);
+    this.active = chat;
+    this.emit("change");
+    return chat;
+  }
+  select(chat) {
+    if (!this.chats.includes(chat) || chat === this.active) return;
+    this.active = chat;
+    this.emit("change");
+  }
+  // Ends the chat's agent. A chat whose cleanup is uncertain stays open so
+  // the user can force stop it; the last tab is replaced by a fresh one.
+  async close(chat) {
+    if (this.disposed || !this.chats.includes(chat) || chat.closing) return false;
+    chat.closing = true;
+    this.emit("change");
+    const clean = await chat.dispose();
+    chat.closing = false;
+    if (this.disposed) return clean;
+    if (!clean) {
+      chat.recoverCleanup();
+      chat.on("change", this.listener);
+      this.emit("change");
+      return false;
+    }
+    const index = this.chats.indexOf(chat);
+    this.chats.splice(index, 1);
+    if (this.active === chat) this.active = this.chats[Math.min(index, this.chats.length - 1)] ?? null;
+    if (this.chats.length) this.emit("change");
+    else this.add();
+    return true;
+  }
+  // Ends every agent. Chats with uncertain cleanup are kept for recover().
+  async dispose() {
+    this.disposed = true;
+    const chats = this.chats;
+    const results = await Promise.all(chats.map((chat) => chat.dispose()));
+    this.chats = chats.filter((chat, index) => !results[index]);
+    this.active = this.chats[0] ?? null;
+    return results.every(Boolean);
+  }
+  recover() {
+    this.disposed = false;
+    for (const chat of this.chats) {
+      chat.recoverCleanup();
+      chat.on("change", this.listener);
+    }
+  }
+};
+var TabbedPanel = class {
+  constructor(container, tabs, actions) {
+    this.container = container;
+    this.tabs = tabs;
+    this.actions = actions;
+    this.document = container.ownerDocument;
+    this.entries = /* @__PURE__ */ new Map();
+    this.timer = null;
+    this.disposed = false;
+    container.replaceChildren();
+    container.classList.add("sir-scribbles-root");
+    this.strip = this.el("div", "sir-scribbles-tabs");
+    this.strip.setAttribute("role", "tablist");
+    this.strip.setAttribute("aria-label", "Chats");
+    this.add = this.iconButton("plus", "New chat", () => {
+      const chat = this.tabs.add();
+      if (chat) this.render();
+    }, "sir-scribbles-tab-add");
+    this.panes = this.el("div", "sir-scribbles-panes");
+    container.append(this.strip, this.panes);
+    this.listener = () => this.schedule();
+    tabs.on("change", this.listener);
+    this.render();
+  }
+  el(tag, className = "", text2 = "") {
+    const node = this.document.createElement(tag);
+    if (className) node.className = className;
+    node.textContent = text2;
+    return node;
+  }
+  iconButton(icon, label2, action, className) {
+    const button = this.el("button", `clickable-icon ${className}`);
+    button.type = "button";
+    button.setAttribute("aria-label", label2);
+    if (this.actions.setIcon) this.actions.setIcon(button, icon);
+    else button.textContent = label2;
+    button.addEventListener("click", action);
+    return button;
+  }
+  schedule() {
+    if (this.timer || this.disposed) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      if (!this.disposed) this.render();
+    }, 40);
+  }
+  entry(chat) {
+    const pane = this.el("div");
+    pane.setAttribute("role", "tabpanel");
+    this.panes.append(pane);
+    const panel = new ChatPanel(pane, chat, { ...this.actions, confirmReset: void 0 });
+    const tab = this.el("div", "sir-scribbles-tab");
+    const select = this.el("button", "sir-scribbles-tab-select");
+    select.type = "button";
+    select.setAttribute("role", "tab");
+    const status = this.el("span", "sir-scribbles-tab-status");
+    const title = this.el("span", "sir-scribbles-tab-title");
+    select.append(status, title);
+    select.addEventListener("click", () => this.tabs.select(chat));
+    const close = this.iconButton("x", "Close chat", () => {
+      void this.close(chat);
+    }, "sir-scribbles-tab-close");
+    tab.append(select, close);
+    return { pane, panel, tab, select, status, title, close };
+  }
+  async close(chat) {
+    const unsaved = chat.messages.length || chat.draft || chat.selection || chat.file || BUSY.includes(chat.state);
+    if (unsaved && !await this.actions.confirmClose(chat)) return;
+    if (!await this.tabs.close(chat) && !this.disposed && this.tabs.chats.includes(chat)) {
+      chat.setError("CLEANUP_UNCERTAIN");
+    }
+  }
+  render() {
+    for (const [chat, entry] of this.entries) {
+      if (this.tabs.chats.includes(chat)) continue;
+      entry.panel.dispose();
+      entry.pane.remove();
+      entry.tab.remove();
+      this.entries.delete(chat);
+    }
+    for (const chat of this.tabs.chats) {
+      let entry = this.entries.get(chat);
+      if (!entry) {
+        entry = this.entry(chat);
+        this.entries.set(chat, entry);
+      }
+      const active = chat === this.tabs.active;
+      const title = chat.title || "New chat";
+      entry.title.textContent = title;
+      entry.select.title = title;
+      entry.status.dataset.state = chat.state;
+      entry.select.setAttribute("aria-selected", String(active));
+      entry.tab.classList.toggle("is-active", active);
+      entry.close.disabled = Boolean(chat.closing);
+      entry.pane.hidden = !active;
+    }
+    this.strip.append(...this.tabs.chats.map((chat) => this.entries.get(chat).tab), this.add);
+    this.add.disabled = this.tabs.full;
+    this.add.title = this.tabs.full ? `Up to ${this.tabs.limit} chats at once. Close one to start another.` : "New chat";
+  }
+  // Re-render every chat, for example after the executable path changed.
+  renderAll() {
+    this.render();
+    for (const { panel } of this.entries.values()) panel.render();
+  }
+  dispose() {
+    this.disposed = true;
+    clearTimeout(this.timer);
+    this.tabs.off("change", this.listener);
+    for (const { panel } of this.entries.values()) panel.dispose();
+    this.entries.clear();
+    this.container.replaceChildren();
+  }
+};
+
 // src/main.js
 var VIEW_TYPE = "sir-scribbles";
 function pathKey(app) {
@@ -6983,16 +7373,16 @@ function storePath(app, path) {
   if (!key) throw new Error("Local desktop vault required");
   globalThis.localStorage.setItem(key, path);
 }
-var ResetModal = class extends import_obsidian.Modal {
+var CloseModal = class extends import_obsidian.Modal {
   constructor(app, resolve) {
     super(app);
     this.resolve = resolve;
     this.accepted = false;
   }
   onOpen() {
-    this.titleEl.textContent = "Start a new chat?";
-    this.contentEl.createEl("p", { text: "This ends the agent and discards the visible conversation, unsent prompt and selection. The agent may keep its own history." });
-    new import_obsidian.Setting(this.contentEl).addButton((button) => button.setButtonText("Keep chat").onClick(() => this.close())).addButton((button) => button.setButtonText("Discard and start over").setCta().onClick(() => {
+    this.titleEl.textContent = "Close this chat?";
+    this.contentEl.createEl("p", { text: "This ends its agent, stops any reply in progress and discards the unsent prompt and selection. The agent keeps its own history, so you may be able to reopen the chat from Open a past chat." });
+    new import_obsidian.Setting(this.contentEl).addButton((button) => button.setButtonText("Keep chat").onClick(() => this.close())).addButton((button) => button.setButtonText("Close chat").setCta().onClick(() => {
       this.accepted = true;
       this.close();
     }));
@@ -7029,12 +7419,14 @@ var ScribblesView = class extends import_obsidian.ItemView {
     }
     if (this.plugin.cleanupPending) await this.plugin.cleanupPending;
     if (this.closed || this.plugin.unloaded) return;
-    this.controller = this.plugin.controller ?? new ChatController(adapter.getBasePath(), {
+    const cwd = adapter.getBasePath();
+    this.tabs = this.plugin.tabs ?? new ChatTabs(() => new ChatController(cwd, {
       getSourcePath: () => this.plugin.lastEditor?.file?.path ?? ""
-    });
-    if (this.controller.disposed) this.controller.recoverCleanup();
-    this.plugin.controller = this.controller;
-    this.panel = new ChatPanel(this.contentEl, this.controller, {
+    }));
+    if (this.tabs.disposed) this.tabs.recover();
+    if (!this.tabs.chats.length) this.tabs.add();
+    this.plugin.tabs = this.tabs;
+    this.panel = new TabbedPanel(this.contentEl, this.tabs, {
       setIcon: import_obsidian.setIcon,
       getPath: () => this.plugin.executablePath,
       savePath: async (path) => {
@@ -7043,7 +7435,7 @@ var ScribblesView = class extends import_obsidian.ItemView {
       },
       attachSelection: () => captureSelection(this.plugin.lastEditor, (view) => view instanceof import_obsidian.MarkdownView && this.app.workspace.getLeavesOfType("markdown").some((leaf) => leaf.view === view)),
       attachFile: () => captureFile(this.plugin.lastEditor, (view) => view instanceof import_obsidian.MarkdownView && this.app.workspace.getLeavesOfType("markdown").some((leaf) => leaf.view === view)),
-      confirmReset: () => new Promise((resolve) => new ResetModal(this.app, resolve).open()),
+      confirmClose: () => new Promise((resolve) => new CloseModal(this.app, resolve).open()),
       copyText: (text2) => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text2),
       openNote: async (target, sourcePath, newLeaf) => {
         if (typeof target === "object") {
@@ -7060,11 +7452,11 @@ var ScribblesView = class extends import_obsidian.ItemView {
     if (this.plugin.activeView !== this) return;
     this.plugin.activeView = null;
     this.plugin.lastEditor = null;
-    const controller = this.controller;
-    if (!controller) return;
-    this.plugin.cleanupPending = controller?.dispose() ?? Promise.resolve(true);
+    const tabs = this.tabs;
+    if (!tabs) return;
+    this.plugin.cleanupPending = tabs.dispose();
     const clean = await this.plugin.cleanupPending;
-    if (clean) this.plugin.controller = null;
+    if (clean) this.plugin.tabs = null;
     else new import_obsidian.Notice("Agent cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.", 0);
     this.plugin.cleanupPending = null;
   }
@@ -7099,7 +7491,7 @@ var SirScribblesPlugin = class extends import_obsidian.Plugin {
     this.executablePath = loadPath(this.app);
     this.lastEditor = null;
     this.activeView = null;
-    this.controller = null;
+    this.tabs = null;
     this.cleanupPending = null;
     this.registerView(VIEW_TYPE, (leaf) => new ScribblesView(leaf, this));
     this.addRibbonIcon("messages-square", "Open Sir Scribbles", () => {
@@ -7121,7 +7513,7 @@ var SirScribblesPlugin = class extends import_obsidian.Plugin {
   async savePath(path) {
     storePath(this.app, path);
     this.executablePath = path;
-    this.activeView?.panel?.render();
+    this.activeView?.panel?.renderAll();
   }
   async openChat() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
@@ -7143,7 +7535,7 @@ var SirScribblesPlugin = class extends import_obsidian.Plugin {
     this.activeView?.panel?.dispose();
     this.lastEditor = null;
     if (!this.shutdownPending) this.shutdownPending = (async () => {
-      const clean = await (this.cleanupPending ?? this.controller?.dispose()) ?? true;
+      const clean = await (this.cleanupPending ?? this.tabs?.dispose()) ?? true;
       if (!clean) new import_obsidian.Notice("Agent cleanup could not be confirmed on unload. Check the CLI process in your terminal.", 0);
       return clean;
     })();
