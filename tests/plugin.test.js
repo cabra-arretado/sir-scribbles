@@ -32,7 +32,7 @@ function create(t) {
     addSettingTab() {}
     registerEvent() {}
   }
-  class ItemView { constructor(leaf) { this.leaf = leaf; this.app = leaf.app; this.contentEl = dom.window.document.createElement('div'); } }
+  class ItemView { constructor(leaf) { this.leaf = leaf; this.app = leaf.app; this.contentEl = dom.window.document.createElement('div'); } register() {} registerEvent() {} }
   class MarkdownView {}
   class FileSystemAdapter { getBasePath() { return '/fixture-vault'; } }
   class Modal {}

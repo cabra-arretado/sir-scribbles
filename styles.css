@@ -143,7 +143,8 @@
 .sir-scribbles-decisions button { flex: 1 1 auto; }
 
 /* Composer: one field with context on top and actions underneath. */
-.sir-scribbles-footer { flex-shrink: 0; padding: 0 var(--size-4-3) var(--size-4-3); }
+/* The bottom inset clears Obsidian's status bar where it overlaps the sidebar. */
+.sir-scribbles-footer { flex-shrink: 0; padding: 0 var(--size-4-3) calc(var(--size-4-3) + var(--sir-scribbles-status-bar-inset, 0px)); }
 .sir-scribbles-composer {
   display: flex; flex-direction: column; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l);
   background: var(--background-modifier-form-field); transition: border-color .12s ease, box-shadow .12s ease;

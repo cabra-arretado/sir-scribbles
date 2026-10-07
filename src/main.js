@@ -3,6 +3,7 @@ import { ChatController } from './chat.js';
 import { ChatTabs, TabbedPanel } from './tabs.js';
 import { captureSelection, captureFile } from './draft.js';
 import { validateExecutable } from './process.js';
+import { statusBarInset } from './layout.js';
 
 const VIEW_TYPE = 'sir-scribbles';
 
@@ -79,6 +80,24 @@ class ScribblesView extends ItemView {
         await this.app.workspace.openLinkText(target, sourcePath, newLeaf);
       },
     });
+    this.reserveStatusBar();
+  }
+  // Keep the composer clear of the floating status bar. Only the footer moves,
+  // so the measured overlap never changes the view's own size.
+  reserveStatusBar() {
+    const view = this.contentEl;
+    const update = () => view.style.setProperty('--sir-scribbles-status-bar-inset', `${statusBarInset(view)}px`);
+    update();
+    const Observer = view.ownerDocument.defaultView.ResizeObserver;
+    if (Observer) {
+      const observer = new Observer(update);
+      observer.observe(view);
+      const bar = view.ownerDocument.querySelector('.status-bar');
+      if (bar) observer.observe(bar);
+      this.register(() => observer.disconnect());
+    }
+    this.registerEvent(this.app.workspace.on('layout-change', update));
+    this.registerEvent(this.app.workspace.on('css-change', update));
   }
   async onClose() {
     this.closed = true;
