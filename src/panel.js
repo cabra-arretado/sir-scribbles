@@ -115,8 +115,8 @@ export class ChatPanel {
     this.startArea.append(this.path,
       this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       launchRow,
-      this.el('p', 'sir-scribbles-caption', 'Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Once started, the empty chat also lists past chats for this vault. Open a past chat goes straight to that list.'));
-    this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings → Community plugins → Sir Scribbles.');
+      this.el('p', 'sir-scribbles-caption', 'Sending a prompt starts the agent on its default model. Start it first to pick another model or a past chat.'));
+    this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Change it in Settings → Community plugins → Sir Scribbles.');
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea,
       this.el('p', 'sir-scribbles-footnote', 'The agent may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox.'),
