@@ -981,9 +981,6 @@ ${selection.text}
   if (Buffer.byteLength(prompt, "utf8") > LIMITS.prompt) throw new OperationalError("PROMPT_LIMIT");
   return prompt;
 }
-function displayPrompt(prompt) {
-  return prompt.replace(/\n--- BEGIN SELECTED TEXT ([0-9a-f]{12}) ---\n([\s\S]*)\n--- END SELECTED TEXT \1 ---$/, "\n$2");
-}
 
 // src/chat.js
 var ERROR_TEXT = {
@@ -6658,6 +6655,11 @@ var MASCOT_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAAB7CAYAAAC8
 // src/icon.js
 var ICON_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABeUlEQVR4nN2XsUoDQRCG8yZW2gmCXUrBB0hjZRMsLAKWYhEbG8EHsAlCKh/BNPoSgoUgiDamSaE+wMoE/jBsZmdndvdSePDB3Saz8+3s3B3X6/2HY297K2hsRCB8nIssZrvdy2gCXIToTAAJchRXIrfPKVISRQIvb59ZpAaMZVwCCB5f34af37mKJNNUQFv50fBsCR+jmHjP3T3AV64lk8b4lpgF4j2sEaBr94rvTvoBtBCgeGkrVIH3yelSwNL1ub7AORalJifDlgIczGkSAFS6p8vDKrAFRQJ0/To5DouHCzP0fxDLYE5VgOBBfMIa3AJ85XQevp9XFbHCY2hO8zNAEsBvHgEeg4o2E7gfHSRpJpACiR6vBmtIIlUCX9ObFbHAYH9nTQBjEEBsswrwlecEiPhWNL+ILAIaRQJcJPUckASkSmxEgBIDPsYbkSc2vxFzAvFdwEUg4Op+SSB+LGsiEkWl1ypRQvUnmlQJr4A7qUXGQzOBro4/L+tCa3zNdeUAAAAASUVORK5CYII=";
 
+// src/display.js
+function displayPrompt(prompt) {
+  return prompt.replace(/\n--- BEGIN SELECTED TEXT ([0-9a-f]{12}) ---\n([\s\S]*)\n--- END SELECTED TEXT \1 ---$/, "\n$2");
+}
+
 // src/panel.js
 var DECISIONS = { allow_once: "Allow once", reject_once: "Deny once", allow_always: "Always allow", reject_always: "Always deny" };
 var STATES = {
@@ -6774,7 +6776,8 @@ var ChatPanel = class {
     this.startArea.append(
       this.path,
       this.el("p", "sir-scribbles-caption", "The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
-      launchRow
+      launchRow,
+      this.el("p", "sir-scribbles-caption", "Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Open a past chat lists the conversations the agent kept for this vault.")
     );
     this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
     this.startArea.append(this.pathHelp);
