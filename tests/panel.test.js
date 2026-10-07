@@ -467,3 +467,41 @@ test('a chat started with Start agent lists past chats until its first message',
   panel.render();
   assert.equal(panel.historyArea.hidden, true);
 });
+
+test('edits and removals made while a past chat reopens are kept', async t => {
+  const { model, panel, root, dom } = create(t);
+  const { EventEmitter } = await import('node:events');
+  let closing = null;
+  const sessions = [];
+  model.validate = async () => {};
+  model.launch = () => ({});
+  model.createSession = () => {
+    const session = Object.assign(new EventEmitter(), {
+      permissions: new Map(), canLoad: () => true, listSessions: async () => [],
+      connect: async () => { session.emit('state', 'connected'); return {}; },
+      open: async (cwd, sessionId) => { session.opened = sessionId; session.emit('state', 'ready'); return { configOptions: [] }; },
+      close: () => new Promise(resolve => { closing = resolve; }),
+    });
+    sessions.push(session);
+    return session;
+  };
+  await model.start('/fixture/kiro');
+  model.setDraft('Original draft');
+  model.attach(Object.freeze({ path: 'note.md', from: 1, to: 1, text: 'quoted' }));
+  model.attach(Object.freeze({ kind: 'file', path: 'whole.md' }));
+  panel.render();
+  const reopening = model.reopen('/fixture/kiro', 'old', 'Older chat');
+  panel.render();
+  panel.composer.value = 'Edited draft';
+  panel.composer.dispatchEvent(new dom.window.Event('input'));
+  for (const button of root.querySelectorAll('.sir-scribbles-context-remove')) button.click();
+  panel.render();
+  closing();
+  await reopening;
+  panel.render();
+  assert.equal(sessions.at(-1).opened, 'old');
+  assert.equal(model.draft, 'Edited draft');
+  assert.equal(panel.composer.value, 'Edited draft');
+  assert.equal(model.selection, null);
+  assert.equal(model.file, null);
+});
