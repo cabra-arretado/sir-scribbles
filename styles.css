@@ -100,6 +100,8 @@
 .sir-scribbles-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: var(--size-4-2) 0; font-size: var(--font-ui-smaller); }
 .sir-scribbles-markdown :is(th, td) { border: 1px solid var(--background-modifier-border); padding: var(--size-2-2) var(--size-4-2); }
 .sir-scribbles-markdown a { color: var(--link-color, var(--text-accent)); }
+/* A link that cannot open (outside the vault, unsupported scheme) reads as text. */
+.sir-scribbles-markdown a:not([href]) { color: inherit; }
 .sir-scribbles-link-host { color: var(--text-faint); font-size: var(--font-ui-smaller); }
 
 /* While a reply streams: a soft dot trails the text (or stands alone before

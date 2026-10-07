@@ -83,3 +83,28 @@ test('replies with many blocks render without overflowing the stack', () => {
   assert.equal(root.childElementCount, 130000);
   dom.window.close();
 });
+
+test('bare web addresses become links and vault paths open as notes', () => {
+  const dom = new JSDOM('<main></main>');
+  const root = dom.window.document.querySelector('main');
+  const opened = [];
+  const openNote = target => { opened.push(target); };
+  renderMarkdown(root, 'Docs: https://example.com/a?b=1 and example.com', { openNote });
+  const web = root.querySelector('a');
+  assert.equal(web.getAttribute('href'), 'https://example.com/a?b=1');
+  assert.equal(root.querySelectorAll('a').length, 1);
+  renderMarkdown(root, [
+    '[Abs](/Users/me/Vault/Projects/Plan.md)',
+    '[File](file:///Users/me/Vault/Projects/Launch%20notes.md)',
+    '[[/Users/me/Vault/Daily.md|Daily]]',
+    '[Outside](/Users/me/Other/Secret.md)',
+    '[Outside file](file:///etc/hosts)',
+  ].join(' '), { openNote, vaultPath: '/Users/me/Vault/' });
+  const links = root.querySelectorAll('a.internal-link');
+  assert.equal(links.length, 3);
+  for (const link of links) link.click();
+  assert.deepEqual(opened, ['Projects/Plan.md', 'Projects/Launch notes.md', 'Daily.md']);
+  assert.equal(root.querySelectorAll('a[href]').length, 3);
+  assert.ok(![...root.querySelectorAll('a')].some(a => /^file:/i.test(a.getAttribute('href') ?? '')));
+  dom.window.close();
+});

@@ -70,6 +70,7 @@ class ScribblesView extends ItemView {
         view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view)),
       confirmClose: () => new Promise(resolve => new CloseModal(this.app, resolve).open()),
       copyText: text => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text),
+      vaultPath: cwd,
       openNote: async (target, sourcePath, newLeaf) => {
         if (typeof target === 'object') {
           if (target.vault && target.vault !== this.app.vault.getName()) throw new Error('Different vault');

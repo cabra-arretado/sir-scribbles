@@ -1,6 +1,12 @@
 import MarkdownIt from 'markdown-it';
 
-const markdown = new MarkdownIt({ html: false, linkify: false, maxNesting: 32 });
+const markdown = new MarkdownIt({ html: false, linkify: true, maxNesting: 32 });
+// Only addresses with an explicit scheme become links: `example.com` stays text.
+markdown.linkify.set({ fuzzyLink: false, fuzzyEmail: false });
+// markdown-it drops `file:` links; keep them as tokens so one into the vault
+// can open as a note. The renderer below never sets a `file:` href.
+const validateLink = markdown.validateLink;
+markdown.validateLink = url => /^file:/i.test(url) || validateLink(url);
 const delimiterIndexes = new WeakMap();
 function nextPosition(positions, from) {
   let low = 0, high = positions.length;
@@ -49,9 +55,16 @@ markdown.inline.ruler.before('link', 'vault_link', (state, silent) => {
 const tags = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
   'blockquote', 'strong', 'em', 's', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td']);
 
-export function noteLinkTarget(href, encoded = false) {
+// Agents run with the vault as their working directory and often cite notes
+// by absolute path or file URL. Those inside the vault open as vault paths.
+export function noteLinkTarget(href, encoded = false, vaultPath = '') {
   try {
-    const decoded = encoded ? decodeURIComponent(href) : href;
+    let decoded = encoded ? decodeURIComponent(href) : href;
+    if (vaultPath) {
+      if (/^file:\/\//i.test(decoded)) decoded = decodeURIComponent(new URL(decoded).pathname);
+      const root = vaultPath.replace(/\/+$/, '') + '/';
+      if (decoded.startsWith(root)) decoded = decoded.slice(root.length);
+    }
     if (!decoded || /[\u0000-\u001f\\]/.test(decoded) || decoded.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(decoded)) return null;
     return decoded;
   } catch { return null; }
@@ -106,7 +119,7 @@ export function settleStreaming(source) {
   return text + suffix;
 }
 
-export function renderMarkdown(container, source, { openNote, sourcePath = '' } = {}) {
+export function renderMarkdown(container, source, { openNote, sourcePath = '', vaultPath = '' } = {}) {
   const document = container.ownerDocument;
   const fragment = document.createDocumentFragment();
   const stack = [fragment];
@@ -130,7 +143,7 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
       if (token.type === 'vault_link') {
         const link = document.createElement('a');
         link.textContent = token.content;
-        const target = noteLinkTarget(token.meta.target);
+        const target = noteLinkTarget(token.meta.target, false, vaultPath);
         if (target) wireNote(link, target);
         parent.append(link);
       } else if (token.type === 'text' || token.type === 'softbreak') {
@@ -179,7 +192,7 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
               if (target && openNote) wireNote(element, { path: target, vault: url.searchParams.get('vault') });
             } catch { /* Malformed application links stay inert. */ }
           } else {
-            const target = noteLinkTarget(href, true);
+            const target = noteLinkTarget(href, true, vaultPath);
             if (target) wireNote(element, target);
           }
           const title = token.attrGet('title');

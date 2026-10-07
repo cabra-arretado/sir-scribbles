@@ -13,10 +13,10 @@ const STATES = {
 // DOM rendering only. Bot Markdown uses a restricted token renderer; note and
 // tool content stays plain text. No raw HTML or automatic resource loading.
 export class ChatPanel {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, setIcon }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon }) {
     this.container = container;
     this.model = controller;
-    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, setIcon };
+    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon };
     this.document = container.ownerDocument;
     this.rows = new Map();
     this.timer = null;
@@ -420,6 +420,7 @@ export class ChatPanel {
     if (visible === row.rendered) return;
     renderMarkdown(row.body, visible, {
       sourcePath: row.message.sourcePath,
+      vaultPath: this.actions.vaultPath,
       openNote: this.actions.openNote ? async (...args) => {
         try { if (!this.disposed) await this.actions.openNote(...args); }
         catch { if (!this.disposed) { this.model.error = 'Could not open that note in this vault.'; this.model.changed(); } }
