@@ -18,9 +18,21 @@ class Fixture {
   decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId === 'allow' ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
+// Stand-in for Obsidian's setIcon with the few Lucide icons the panel uses.
+const ICONS = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  quote: '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/>',
+  'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  'arrow-up': '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+};
+const setIcon = (node, name) => { node.innerHTML = `<svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] ?? ''}</svg>`; };
 const model = new Fixture();
 const selection = { path: 'Projects/Launch notes.md', from: 7, to: 7, text: 'Give the user a clear starting point, let them choose the context, and keep every action visible.' };
 const panel = new ChatPanel(document.getElementById('panel'), model, {
+  setIcon,
   getPath: () => '/Users/you/.local/bin/agent', savePath: async () => {}, attachSelection: () => selection,
   attachFile: () => ({ kind: 'file', path: selection.path }),
   openNote: target => { model.error = `Preview note link: ${typeof target === 'string' ? target : target.path}. No vault is open in this fixture.`; model.changed(); },
@@ -29,7 +41,7 @@ const panel = new ChatPanel(document.getElementById('panel'), model, {
 document.getElementById('initial').onclick = () => model.newChat();
 document.getElementById('conversation').onclick = () => {
   model.newChat(); model.start();
-  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
+  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'tool', text: '{"path":"Projects/Launch notes.md"}', data: { title: 'Read Launch notes.md', status: 'completed' } }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
   model.selection = selection; model.draft = 'What would this look like in practice?'; model.changed();
 };
 document.getElementById('approval').onclick = () => {

@@ -1,4 +1,4 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, FileSystemAdapter, MarkdownView, Modal, Notice } from 'obsidian';
+import { Plugin, ItemView, PluginSettingTab, Setting, FileSystemAdapter, MarkdownView, Modal, Notice, setIcon } from 'obsidian';
 import { ChatController } from './chat.js';
 import { ChatPanel } from './panel.js';
 import { captureSelection, captureFile } from './draft.js';
@@ -59,6 +59,7 @@ class ScribblesView extends ItemView {
     if (this.controller.disposed) this.controller.recoverCleanup();
     this.plugin.controller = this.controller;
     this.panel = new ChatPanel(this.contentEl, this.controller, {
+      setIcon,
       getPath: () => this.plugin.executablePath,
       savePath: async path => { await validateExecutable(path); await this.plugin.savePath(path); },
       attachSelection: () => captureSelection(this.plugin.lastEditor, view =>
