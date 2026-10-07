@@ -449,3 +449,21 @@ test('the start area says Start agent is how to choose a non-default model', t =
   const { root } = create(t);
   assert.ok(root.querySelector('.sir-scribbles-start-area').textContent.includes('Start the agent first to choose a model other than its default'));
 });
+
+test('a chat started with Start agent lists past chats until its first message', t => {
+  const { model, panel, root } = create(t);
+  let reopened = null;
+  model.state = 'ready';
+  model.reopen = (...args) => { reopened = args; };
+  model.recent = { entries: [{ sessionId: 'old', title: 'Older chat', updatedAt: null }] };
+  panel.render();
+  const item = root.querySelector('.sir-scribbles-history-item');
+  assert.equal(panel.historyArea.hidden, false);
+  assert.equal(item.textContent, 'Older chat');
+  assert.ok(![...panel.historyArea.querySelectorAll('button')].some(button => button.textContent === 'Start a new chat'));
+  item.click();
+  assert.deepEqual(reopened, ['/fixture/kiro', 'old', 'Older chat']);
+  model.messages.push({ role: 'user', text: 'hi', timestamp: 0 });
+  panel.render();
+  assert.equal(panel.historyArea.hidden, true);
+});

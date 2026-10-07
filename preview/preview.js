@@ -31,8 +31,12 @@ class Fixture {
     this.title = title; this.messages = [{ role: 'user', text: 'Draft three options for the launch announcement.', timestamp: null }, { role: 'agent', text: 'Here are three directions:\n\n1. **Quiet confidence** — lead with the problem.\n2. **Show, don\'t tell** — a short demo clip.\n3. **Founder note** — why we built it.', timestamp: null }];
     this.start();
   }
-  start() { this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.configOptions = models('auto'); this.changed(); }
-  newChat() { this.title = ''; this.history = null; this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
+  start(executable, { listPast = false } = {}) {
+    this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.configOptions = models('auto'); this.changed();
+    if (listPast) setTimeout(() => { if (!this.messages.length) { this.recent = { entries: PAST }; this.changed(); } }, 500);
+  }
+  reopen(executable, sessionId, title) { this.recent = null; this.state = 'connected'; this.open(sessionId, title); }
+  newChat() { this.title = ''; this.history = null; this.recent = null; this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
   send() {
     if (this.state === 'connected') this.start();
     if (!this.title) this.title = (this.draft || 'Selection').split('\n')[0].slice(0, 48);

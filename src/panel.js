@@ -115,7 +115,7 @@ export class ChatPanel {
     this.startArea.append(this.path,
       this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       launchRow,
-      this.el('p', 'sir-scribbles-caption', 'Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Open a past chat lists the conversations the agent kept for this vault.'));
+      this.el('p', 'sir-scribbles-caption', 'Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Once started, the empty chat also lists past chats for this vault. Open a past chat goes straight to that list.'));
     this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings → Community plugins → Sir Scribbles.');
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea,
@@ -177,7 +177,8 @@ export class ChatPanel {
       // Save only this setting, not any conversation state.
       if (!saved) await this.actions.savePath(executable);
       if (this.disposed || generation !== this.model.generation) return;
-      await this.model[method](executable);
+      if (method === 'start') await this.model.start(executable, { listPast: true });
+      else await this.model[method](executable);
     } catch {
       if (!this.disposed && generation === this.model.generation) this.model.setError('EXECUTABLE_NOT_AVAILABLE');
     } finally {
@@ -256,10 +257,12 @@ export class ChatPanel {
     this.renderHistory();
   }
 
-  // Past chats for this vault, shown after the agent starts for browsing.
+  // Past chats for this vault: the picker after Open a past chat, or the
+  // offer in a chat started with Start agent until its first message.
   renderHistory() {
     const model = this.model;
-    const history = model.state === 'connected' && !model.loading ? model.history : null;
+    const offered = model.state === 'ready' && !model.messages.length && !model.loading ? model.recent : null;
+    const history = model.state === 'connected' && !model.loading ? model.history : offered;
     if (history === this.lastHistory) return;
     this.lastHistory = history;
     this.historyArea.replaceChildren();
@@ -277,7 +280,10 @@ export class ChatPanel {
       for (const entry of history.entries) {
         const item = this.el('li');
         const title = entry.title || 'Untitled chat';
-        const button = this.button('', () => { void model.open(entry.sessionId, entry.title); }, 'sir-scribbles-history-item');
+        const button = this.button('', () => {
+          if (offered) void model.reopen(this.actions.getPath().trim(), entry.sessionId, entry.title);
+          else void model.open(entry.sessionId, entry.title);
+        }, 'sir-scribbles-history-item');
         button.append(this.el('span', 'sir-scribbles-history-title', title));
         if (entry.updatedAt !== null) {
           const date = new Date(entry.updatedAt);
@@ -292,6 +298,7 @@ export class ChatPanel {
       }
       this.historyArea.append(list);
     }
+    if (offered) return; // Already in a new chat.
     const fresh = this.button('Start a new chat', () => { void model.open(); }, 'sir-scribbles-secondary');
     fresh.disabled = Boolean(history.pending);
     this.historyArea.append(fresh);

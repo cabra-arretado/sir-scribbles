@@ -71,7 +71,8 @@ The executable path is now stored on this device per vault, not in the vault's
 2. Review the displayed vault directory. With a saved executable, sending your
    first prompt starts ACP and sends after initialization succeeds, using the
    agent's default model. To choose another model, click **Start agent** first and
-   pick it from the composer. Opening the sidebar or typing never starts a process.
+   pick it from the composer. Until you send, that new chat also lists this vault's
+   past chats; choosing one restarts the agent into it and keeps your draft. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
    To continue an earlier conversation, click **Open a past chat**. This starts
    Kiro and lists the chats it has kept for this vault, newest first. Choose one

@@ -66,6 +66,7 @@ export class ChatController extends EventEmitter {
     this.title = '';
     this.history = null; // { pending } | { entries } | { error } while choosing a chat.
     this.loading = false; // Replaying a past chat: its messages have no local time.
+    this.recent = null; // { entries } of past chats, offered while a started chat is still empty.
   }
   changed() { this.emit('change'); }
   setDraft(text) { this.draft = text; } // Typing never launches or recreates the composer.
@@ -140,9 +141,38 @@ export class ChatController extends EventEmitter {
     }
   }
 
-  async start(executable) {
+  async start(executable, { listPast = false } = {}) {
     await this.connect(executable);
     if (this.state === 'connected') await this.open();
+    if (listPast) await this.listRecent();
+  }
+
+  // Past chats to offer in a started but still empty chat. Best effort: a
+  // refused listing just shows none.
+  async listRecent() {
+    const session = this.session;
+    if (this.state !== 'ready' || this.messages.length || !session?.canLoad()) return;
+    const generation = this.generation;
+    let entries;
+    try { entries = await session.listSessions(this.cwd); }
+    catch { return; }
+    if (generation !== this.generation || this.disposed || this.messages.length) return;
+    entries = entries.filter(entry => entry.sessionId !== session.sessionId);
+    this.recent = entries.length ? { entries } : null;
+    this.changed();
+  }
+
+  // Leaves the empty chat for a past one. The agent restarts so the past chat
+  // opens the same way as from Open a past chat; the draft carries over.
+  async reopen(executable, sessionId, title = '') {
+    if (this.state !== 'ready' || this.messages.length || this.configPending || this.resetting || this.disposed) return;
+    const { draft, selection, file } = this;
+    if (!(await this.newChat())) return;
+    this.draft = draft;
+    this.selection = selection;
+    this.file = file;
+    await this.connect(executable);
+    if (this.state === 'connected') await this.open(sessionId, title);
   }
 
   // Lists this vault's past chats so the user can reopen one. Starts the
@@ -368,6 +398,7 @@ export class ChatController extends EventEmitter {
     this.title = '';
     this.history = null;
     this.loading = false;
+    this.recent = null;
     this.forceAvailable = false;
     this.resetting = false;
     this.state = 'not-started';
