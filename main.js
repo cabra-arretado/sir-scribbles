@@ -1182,9 +1182,12 @@ var ChatController = class extends import_node_events2.EventEmitter {
   // throughout, so edits made while the old process closes are kept.
   async reopen(executable, sessionId, title = "") {
     if (this.state !== "ready" || this.messages.length || this.configPending || this.resetting || this.disposed) return;
+    const entries = this.recent?.entries ?? [];
     if (!await this.newChat({ keepComposer: true })) return;
     await this.connect(executable);
-    if (this.state === "connected") await this.open(sessionId, title);
+    if (this.state !== "connected") return;
+    this.history = { entries };
+    await this.open(sessionId, title);
   }
   // Lists this vault's past chats so the user can reopen one. Starts the
   // agent when needed; the chat itself is opened only on a choice.
@@ -6808,9 +6811,9 @@ var ChatPanel = class {
       this.path,
       this.el("p", "sir-scribbles-caption", "The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
       launchRow,
-      this.el("p", "sir-scribbles-caption", "Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Once started, the empty chat also lists past chats for this vault. Open a past chat goes straight to that list.")
+      this.el("p", "sir-scribbles-caption", "Sending a prompt starts the agent on its default model. Start it first to pick another model or a past chat.")
     );
-    this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
+    this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Change it in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
     this.startArea.append(this.pathHelp);
     this.empty.append(
       this.startArea,
