@@ -57,7 +57,7 @@ function create(t) {
   const plugin = new module.exports.default(app);
   const leaf = { app, detached: false, detach() { this.detached = true; }, async setViewState() { this.view = plugin.factory(this); await this.view.onOpen(); } };
   leaves.push(leaf);
-  t.after(async () => { await plugin.controller?.dispose(); dom.window.close(); });
+  t.after(async () => { await plugin.tabs?.dispose(); dom.window.close(); });
   return { plugin, app, leaf, leaves, events, writes, stored, launches: () => launches };
 }
 
@@ -67,13 +67,13 @@ test('Obsidian plugin enablement and restored sidebar never launch a CLI or pers
   assert.equal(plugin.executablePath, '', 'vault plugin data and other vaults never choose the executable');
   await leaf.setViewState();
   assert.equal(launches(), 0);
-  assert.equal(plugin.controller.state, 'not-started');
-  plugin.controller.setDraft('private draft');
+  assert.equal(plugin.tabs.active.state, 'not-started');
+  plugin.tabs.active.setDraft('private draft');
   await plugin.savePath('/fixture/new-path');
   assert.deepEqual(writes, []);
   assert.equal(stored.get('sir-scribbles:executable:/fixture-vault'), '/fixture/new-path');
   await leaf.view.onClose();
-  assert.equal(plugin.controller, null);
+  assert.equal(plugin.tabs, null);
   assert.equal(launches(), 0);
 });
 
@@ -81,13 +81,13 @@ test('restored duplicate view detaches itself and does not close the first owner
   const { plugin, leaf, app, launches } = create(t);
   await plugin.onload();
   await leaf.setViewState();
-  const owner = plugin.controller;
+  const owner = plugin.tabs;
   const duplicateLeaf = { app, detach() { this.detached = true; } };
   const duplicate = plugin.factory(duplicateLeaf);
   await duplicate.onOpen();
   await duplicate.onClose();
   assert.equal(duplicateLeaf.detached, true);
-  assert.equal(plugin.controller, owner);
+  assert.equal(plugin.tabs, owner);
   assert.equal(owner.disposed, false);
   assert.equal(launches(), 0);
 });
@@ -101,7 +101,7 @@ test('unloading during a pending view open prevents late controller creation', a
   plugin.onunload();
   finishCleanup(true);
   await opening;
-  assert.equal(plugin.controller, null);
+  assert.equal(plugin.tabs, null);
   assert.equal(launches(), 0);
 });
 
@@ -129,7 +129,7 @@ test('normal quit registers an awaited cleanup task shared with unload', async t
   await leaf.setViewState();
   let finish;
   let calls = 0;
-  plugin.controller.dispose = () => { calls++; return new Promise(resolve => { finish = resolve; }); };
+  plugin.tabs.dispose = () => { calls++; return new Promise(resolve => { finish = resolve; }); };
   let task;
   events.get('quit')({ add: callback => { task = callback(); } });
   assert.equal(plugin.unloaded, true);
@@ -142,5 +142,5 @@ test('normal quit registers an awaited cleanup task shared with unload', async t
   finish(true);
   await task;
   assert.equal(settled, true);
-  plugin.controller = null;
+  plugin.tabs = null;
 });

@@ -3,7 +3,7 @@ import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
 
 const STATES = {
-  'not-started': 'Not started', starting: 'Starting', ready: 'Ready', working: 'Working',
+  'not-started': 'Not started', starting: 'Starting', connected: 'Choose a chat', ready: 'Ready', working: 'Working',
   'waiting-for-approval': 'Waiting for approval', stopping: 'Stopping', failed: 'Failed', terminated: 'Terminated',
 };
 
@@ -23,6 +23,7 @@ export class ChatPanel {
     this.lastSelection = undefined;
     this.lastPath = null;
     this.lastModel = null;
+    this.lastHistory = undefined;
     this.streaming = new Set();
     this.frame = null;
     this.lastFrame = 0;
@@ -72,11 +73,15 @@ export class ChatPanel {
     this.status = this.el('span', 'sir-scribbles-status');
     this.status.setAttribute('role', 'status');
     this.identity = this.el('span', 'sir-scribbles-identity');
-    this.reset = this.iconButton('plus', 'New chat', async () => {
-      if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file) && !(await this.actions.confirmReset())) return;
-      await this.model.newChat();
-    }, 'sir-scribbles-reset');
-    header.append(mascot, this.status, this.identity, this.reset);
+    header.append(mascot, this.status, this.identity);
+    // Tabs open new chats instead; a single panel resets in place.
+    if (this.actions.confirmReset) {
+      this.reset = this.iconButton('plus', 'New chat', async () => {
+        if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file) && !(await this.actions.confirmReset())) return;
+        await this.model.newChat();
+      }, 'sir-scribbles-reset');
+      header.append(this.reset);
+    }
     this.container.append(header);
 
     this.error = this.el('div', 'sir-scribbles-error');
@@ -100,33 +105,21 @@ export class ChatPanel {
     this.path.setAttribute('aria-label', 'Agent executable path');
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
-    this.start = this.button('Start agent', async () => {
-      const saved = this.actions.getPath().trim();
-      const executable = saved || this.path.value.trim();
-      const generation = this.model.generation;
-      this.startPending = true;
-      this.start.disabled = true;
-      try {
-        // Save only this setting, not any conversation state.
-        if (!saved) await this.actions.savePath(executable);
-        if (this.disposed || generation !== this.model.generation) return;
-        await this.model.start(executable);
-      } catch {
-        if (!this.disposed && generation === this.model.generation) this.model.setError('EXECUTABLE_NOT_AVAILABLE');
-      } finally {
-        this.startPending = false;
-        if (!this.disposed) this.render();
-      }
-    }, 'mod-cta sir-scribbles-primary');
+    this.start = this.button('Start agent', () => this.launch('start'), 'mod-cta sir-scribbles-primary');
+    this.browse = this.button('Open a past chat', () => this.launch('browse'), 'sir-scribbles-secondary');
+    const launchRow = this.el('div', 'sir-scribbles-launch');
+    launchRow.append(this.start, this.browse);
     this.startArea.append(this.path,
       this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
-      this.start);
+      launchRow);
     this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings → Community plugins → Sir Scribbles.');
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea,
       this.el('p', 'sir-scribbles-footnote', 'The agent may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox.'),
       this.el('p', 'sir-scribbles-footnote', 'Developer preview · Kiro CLI (V3) is currently the only supported agent'));
-    this.transcript.append(this.empty);
+    this.historyArea = this.el('section', 'sir-scribbles-history');
+    this.historyArea.setAttribute('aria-label', 'Past chats');
+    this.transcript.append(this.historyArea, this.empty);
     this.container.append(this.transcript);
 
     this.permissionArea = this.el('section', 'sir-scribbles-permission-area');
@@ -169,6 +162,26 @@ export class ChatPanel {
     this.container.append(footer);
   }
 
+  // Start a new chat, or start the agent to list past ones.
+  async launch(method) {
+    const saved = this.actions.getPath().trim();
+    const executable = saved || this.path.value.trim();
+    const generation = this.model.generation;
+    this.startPending = true;
+    this.renderControls();
+    try {
+      // Save only this setting, not any conversation state.
+      if (!saved) await this.actions.savePath(executable);
+      if (this.disposed || generation !== this.model.generation) return;
+      await this.model[method](executable);
+    } catch {
+      if (!this.disposed && generation === this.model.generation) this.model.setError('EXECUTABLE_NOT_AVAILABLE');
+    } finally {
+      this.startPending = false;
+      if (!this.disposed) this.render();
+    }
+  }
+
   fitComposer() {
     // Grow with the draft up to the CSS max-height, then scroll.
     this.composer.style.height = 'auto';
@@ -191,14 +204,16 @@ export class ChatPanel {
   }
   renderControls() {
     const model = this.model;
-    const canStart = model.state === 'not-started' && Boolean(this.actions.getPath().trim());
-    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending || !(model.draft.trim() || model.selection || model.file);
-    this.send.title = canStart ? 'Start the agent and send (Enter)' : 'Send (Enter)';
+    const canStart = (model.state === 'not-started' && Boolean(this.actions.getPath().trim())) || model.state === 'connected';
+    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending ||
+      Boolean(model.history?.pending) || !(model.draft.trim() || model.selection || model.file);
+    this.send.title = canStart ? 'Start a new chat and send (Enter)' : 'Send (Enter)';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
+    this.browse.disabled = this.start.disabled;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
     this.path.hidden = Boolean(this.actions.getPath().trim());
     this.pathHelp.hidden = !this.path.hidden;
-    this.reset.disabled = model.resetting || model.disposed;
+    if (this.reset) this.reset.disabled = model.resetting || model.disposed;
     this.attach.disabled = model.resetting || model.disposed;
     this.attachFile.disabled = model.resetting || model.disposed;
     this.attachFile.setAttribute('aria-pressed', String(Boolean(model.file)));
@@ -227,13 +242,52 @@ export class ChatPanel {
     if (this.lastPath !== path && this.document.activeElement !== this.path) this.path.value = path;
     this.lastPath = path;
     this.startArea.hidden = model.state !== 'not-started';
-    this.empty.hidden = model.messages.length > 0;
+    this.empty.hidden = model.messages.length > 0 || model.state === 'connected' || model.loading;
     if (this.composer.value !== model.draft) { this.composer.value = model.draft; this.fitComposer(); }
     this.renderControls();
     this.renderMessages();
     this.renderSelection();
     this.renderPermission();
     this.renderModel();
+    this.renderHistory();
+  }
+
+  // Past chats for this vault, shown after the agent starts for browsing.
+  renderHistory() {
+    const model = this.model;
+    const history = model.state === 'connected' && !model.loading ? model.history : null;
+    if (history === this.lastHistory) return;
+    this.lastHistory = history;
+    this.historyArea.replaceChildren();
+    this.historyArea.hidden = !history;
+    if (!history) return;
+    this.historyArea.append(this.el('h4', '', 'Past chats in this vault'));
+    if (history.pending) this.historyArea.append(this.el('p', 'sir-scribbles-caption', 'Asking the agent for past chats…'));
+    else if (history.error) this.historyArea.append(this.el('p', 'sir-scribbles-caption', history.error));
+    else if (!history.entries.length) this.historyArea.append(this.el('p', 'sir-scribbles-caption', 'No past chats for this vault yet.'));
+    else {
+      const list = this.el('ul', 'sir-scribbles-history-list');
+      for (const entry of history.entries) {
+        const item = this.el('li');
+        const title = entry.title || 'Untitled chat';
+        const button = this.button('', () => { void model.open(entry.sessionId, entry.title); }, 'sir-scribbles-history-item');
+        button.append(this.el('span', 'sir-scribbles-history-title', title));
+        if (entry.updatedAt !== null) {
+          const date = new Date(entry.updatedAt);
+          const time = this.el('time', 'sir-scribbles-history-date', date.toLocaleDateString([], { month: 'short', day: 'numeric' }));
+          time.dateTime = date.toISOString();
+          time.title = date.toLocaleString();
+          button.append(time);
+        }
+        button.title = title;
+        item.append(button);
+        list.append(item);
+      }
+      this.historyArea.append(list);
+    }
+    const fresh = this.button('Start a new chat', () => { void model.open(); }, 'sir-scribbles-secondary');
+    fresh.disabled = Boolean(history.pending);
+    this.historyArea.append(fresh);
   }
 
   // Agents replace the whole option list on every change, so a new object
@@ -285,12 +339,16 @@ export class ChatPanel {
         const root = this.el('article', `sir-scribbles-message sir-scribbles-${message.role}`);
         const meta = this.el('div', 'sir-scribbles-message-meta');
         const label = this.el('span', 'sir-scribbles-sr-only', message.role === 'user' ? 'You' : message.role === 'tool' ? 'Tool activity' : 'Agent');
-        const timestamp = this.el('time', 'sir-scribbles-timestamp');
-        const date = new Date(message.timestamp ?? Date.now());
-        timestamp.dateTime = date.toISOString();
-        timestamp.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        timestamp.title = date.toLocaleString();
-        meta.append(timestamp, this.iconButton('copy', 'Copy', async () => {
+        // Replayed history carries no local time; show none rather than a wrong one.
+        if (message.timestamp !== null) {
+          const timestamp = this.el('time', 'sir-scribbles-timestamp');
+          const date = new Date(message.timestamp ?? Date.now());
+          timestamp.dateTime = date.toISOString();
+          timestamp.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          timestamp.title = date.toLocaleString();
+          meta.append(timestamp);
+        }
+        meta.append(this.iconButton('copy', 'Copy', async () => {
           try { await this.actions.copyText(message.text); }
           catch { this.model.error = 'Could not copy. Select the text and copy it manually.'; this.model.changed(); }
         }, 'sir-scribbles-copy'));
@@ -330,8 +388,9 @@ export class ChatPanel {
     if (!message.text.startsWith(row.target ?? '')) row.shown = 0;
     row.target = message.text;
     row.message = message;
-    // Rows that already exist when the panel opens are history, not a stream.
-    if (!this.animate || !this.initialized) { row.shown = message.text.length; this.paintReply(row); return; }
+    // Rows that exist when the panel opens, or arrive while a past chat is
+    // replayed, are history, not a stream.
+    if (!this.animate || !this.initialized || this.model.loading) { row.shown = message.text.length; this.paintReply(row); return; }
     row.shown ??= 0;
     this.streaming.add(row);
     this.requestFrame();

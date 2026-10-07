@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 const mode = process.argv[2] ?? 'normal';
 const output = frame => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...frame }) + '\n');
 const reply = (id, result) => output({ id, result });
-const update = value => output({ method: 'session/update', params: { sessionId: 'fixture-session', update: value } });
+const update = (value, sessionId = 'fixture-session') => output({ method: 'session/update', params: { sessionId, update: value } });
 const permission = id => output({ id, method: 'session/request_permission', params: {
   sessionId: 'fixture-session',
   toolCall: {
@@ -41,16 +41,41 @@ input.on('line', line => {
     if (mode === 'invalid-json') { process.stdout.write('{bad}\n'); return; }
     reply(frame.id, {
       protocolVersion: mode === 'wrong-version' ? 2 : 1,
-      agentCapabilities: {},
+      agentCapabilities: mode.startsWith('history') ? { loadSession: true, sessionCapabilities: { list: {} } } : {},
       agentInfo: { name: 'fixture', version: 'test' },
     });
   } else if (frame.method === 'session/new') {
     reply(frame.id, mode.startsWith('config') ? { sessionId: 'fixture-session', configOptions: models('auto') } : { sessionId: 'fixture-session' });
     if (grandchild) update({ sessionUpdate: 'fixture-child', pid: grandchild.pid });
+  } else if (frame.method === 'session/list') {
+    if (mode === 'history-refuse') { output({ id: frame.id, error: { code: -32603, message: 'private detail' } }); return; }
+    const { cwd } = frame.params;
+    // Two pages; entries from another directory or without an ID are dropped.
+    if (!frame.params.cursor) reply(frame.id, { nextCursor: 'page-2', sessions: [
+      { sessionId: 'old', cwd, title: 'Older chat', updatedAt: '2026-01-02T10:00:00Z' },
+      { sessionId: 'elsewhere', cwd: '/other', title: 'Other vault', updatedAt: '2026-03-01T10:00:00Z' },
+      { cwd, title: 'No ID' },
+    ] });
+    else reply(frame.id, { sessions: [{ sessionId: 'recent', cwd, title: 'Recent chat', updatedAt: '2026-02-01T10:00:00Z' }, { sessionId: 'untitled', cwd }] });
+  } else if (frame.method === 'session/load') {
+    const { sessionId } = frame.params;
+    if (sessionId === 'missing') { output({ id: frame.id, error: { code: -32002, message: 'private detail' } }); return; }
+    update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Earlier ' } }, sessionId);
+    update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'question' } }, sessionId);
+    update({ sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: 'First answer' } }, sessionId);
+    update({ sessionUpdate: 'tool_call', toolCallId: 'replayed', title: 'Read note', status: 'completed' }, sessionId);
+    update({ sessionUpdate: 'agent_message_chunk', messageId: 'a2', content: { type: 'text', text: 'Second answer' } }, sessionId);
+    update({ sessionUpdate: 'session_info_update', title: 'Renamed by agent' }, sessionId);
+    reply(frame.id, { configOptions: models('opus') });
   } else if (frame.method === 'session/set_config_option') {
     if (mode === 'config-reject') output({ id: frame.id, error: { code: -32602, message: 'private detail' } });
     else reply(frame.id, { configOptions: models(frame.params.value) });
   } else if (frame.method === 'session/prompt') {
+    if (mode === 'history') {
+      update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'continued' } }, frame.params.sessionId);
+      reply(frame.id, { stopReason: 'end_turn' });
+      return;
+    }
     if (mode === 'config') update({ sessionUpdate: 'config_option_update', configOptions: models('opus') });
     promptId = frame.id;
     if (mode === 'transport-loss') { process.stdout.end(); return; }

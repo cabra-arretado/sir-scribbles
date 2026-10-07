@@ -362,3 +362,53 @@ test('config changes are refused before start and during a turn', async t => {
   await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_NOT_AVAILABLE' });
   await turn;
 });
+
+test('connect alone opens no chat; past chats list across pages for this directory only', async t => {
+  const session = create(t, 'history');
+  const methods = [];
+  const write = session.write.bind(session);
+  session.write = frame => { methods.push(frame.method); write(frame); };
+  await session.connect();
+  assert.equal(session.state, 'connected');
+  assert.equal(session.sessionId, null);
+  const entries = await session.listSessions('/fixture');
+  assert.deepEqual(entries.map(entry => [entry.sessionId, entry.title]), [['recent', 'Recent chat'], ['old', 'Older chat'], ['untitled', '']]);
+  assert.equal(entries[2].updatedAt, null);
+  assert.deepEqual(methods, ['initialize', 'session/list', 'session/list']);
+  assert.equal(session.state, 'connected');
+});
+
+test('loading a past chat replays its history before the session is ready', async t => {
+  const session = create(t, 'history');
+  const updates = [];
+  session.on('update', update => updates.push([session.state, update.sessionUpdate]));
+  await session.connect();
+  await session.open('/fixture', 'old');
+  assert.equal(session.sessionId, 'old');
+  assert.equal(session.state, 'ready');
+  assert.deepEqual(updates.map(([state]) => state), Array(6).fill('starting'));
+  assert.equal(updates[0][1], 'user_message_chunk');
+  assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'opus');
+  assert.equal((await session.prompt('next')).stopReason, 'end_turn');
+});
+
+test('agents without history refuse listing and loading before any request', async t => {
+  const session = create(t);
+  await session.connect();
+  await assert.rejects(session.listSessions('/fixture'), { code: 'HISTORY_NOT_SUPPORTED' });
+  await assert.rejects(session.open('/fixture', 'old'), { code: 'LOAD_NOT_SUPPORTED' });
+  assert.equal(session.state, 'connected');
+  await session.open('/fixture');
+  assert.equal(session.state, 'ready');
+});
+
+test('a refused listing keeps the agent; a refused load ends it', async t => {
+  const refused = create(t, 'history-refuse');
+  await refused.connect();
+  await assert.rejects(refused.listSessions('/fixture'), { code: 'HISTORY_UNAVAILABLE' });
+  assert.equal(refused.state, 'connected');
+  const missing = create(t, 'history');
+  await missing.connect();
+  await assert.rejects(missing.open('/fixture', 'missing'), { code: 'AGENT_REQUEST_FAILED' });
+  assert.equal(missing.state, 'failed');
+});
