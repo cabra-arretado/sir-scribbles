@@ -480,3 +480,20 @@ test('reopening keeps the composer as it is when the old agent finishes closing'
   assert.equal(controller.draft, 'Edited draft');
   assert.equal(controller.selection, null);
 });
+
+test('a refused reopen leaves the past-chat picker and its new-chat choice on screen', async () => {
+  const { controller, session } = create();
+  session.sessionId = 'fresh';
+  session.listSessions = async cwd => [{ sessionId: 'old', title: 'Older chat', updatedAt: 1, cwd }];
+  await controller.start('/fixture', { listPast: true });
+  session.state = 'connected';
+  session.open = async () => { throw new OperationalError('INVALID_SESSION'); };
+  await controller.reopen('/fixture', 'old', 'Older chat');
+  assert.equal(controller.state, 'connected');
+  assert.ok(controller.error);
+  assert.deepEqual(controller.history.entries.map(entry => entry.sessionId), ['old']);
+  session.open = async (cwd, sessionId) => { session.opened = sessionId; session.emit('state', 'ready'); return { configOptions: [] }; };
+  await controller.open();
+  assert.equal(controller.state, 'ready');
+  assert.equal(controller.history, null);
+});
