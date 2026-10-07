@@ -526,6 +526,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.sessionId = null;
     this.cwd = null;
     this.configOptions = [];
+    this.configVersion = 0;
     this.startupUpdates = [];
     this.pending = /* @__PURE__ */ new Map();
     this.expired = /* @__PURE__ */ new Map();
@@ -599,12 +600,9 @@ var AcpSession = class extends import_node_events.EventEmitter {
       if (timeoutMs) entry.timer = setTimeout(() => {
         if (this.pending.get(id) !== entry) return;
         this.pending.delete(id);
-        if (this.expired.size >= this.limits.permissions) {
-          this.fail("REQUEST_TIMEOUT");
-          return;
-        }
-        this.expired.set(id, late);
         reject(new OperationalError("REQUEST_TIMEOUT"));
+        if (this.expired.size >= this.limits.permissions) this.fail("REQUEST_TIMEOUT");
+        else this.expired.set(id, late);
       }, timeoutMs);
       this.pending.set(id, entry);
       try {
@@ -667,6 +665,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
   }
   setConfigOptions(input) {
     this.configOptions = sanitizeConfigOptions(input, this.limits);
+    this.configVersion++;
     this.emit("config-options", this.configOptions);
   }
   rememberToolCall(update) {
@@ -862,8 +861,11 @@ var AcpSession = class extends import_node_events.EventEmitter {
     const option = this.configOptions.find((entry) => entry.id === configId);
     if (!option?.options.some((entry) => entry.value === value)) throw new OperationalError("CONFIG_VALUE_UNKNOWN");
     let result;
+    const version = this.configVersion;
     const late = (result2) => {
-      if (!this.transportClosed && isRecord(result2) && Array.isArray(result2.configOptions)) this.setConfigOptions(result2.configOptions);
+      if (!this.transportClosed && this.configVersion === version && isRecord(result2) && Array.isArray(result2.configOptions)) {
+        this.setConfigOptions(result2.configOptions);
+      }
     };
     try {
       result = await this.request("session/set_config_option", { sessionId: this.sessionId, configId, value }, { timeoutMs: this.limits.requestMs, late });
