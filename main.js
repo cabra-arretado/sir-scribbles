@@ -1043,6 +1043,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.title = "";
     this.history = null;
     this.loading = false;
+    this.recent = null;
   }
   changed() {
     this.emit("change");
@@ -1154,9 +1155,39 @@ var ChatController = class extends import_node_events2.EventEmitter {
       }
     }
   }
-  async start(executable) {
+  async start(executable, { listPast = false } = {}) {
     await this.connect(executable);
     if (this.state === "connected") await this.open();
+    if (listPast) await this.listRecent();
+  }
+  // Past chats to offer in a started but still empty chat. Best effort: a
+  // refused listing just shows none.
+  async listRecent() {
+    const session = this.session;
+    if (this.state !== "ready" || this.messages.length || !session?.canLoad()) return;
+    const generation = this.generation;
+    let entries;
+    try {
+      entries = await session.listSessions(this.cwd);
+    } catch {
+      return;
+    }
+    if (generation !== this.generation || this.disposed || this.messages.length) return;
+    entries = entries.filter((entry) => entry.sessionId !== session.sessionId);
+    this.recent = entries.length ? { entries } : null;
+    this.changed();
+  }
+  // Leaves the empty chat for a past one. The agent restarts so the past chat
+  // opens the same way as from Open a past chat; the draft carries over.
+  async reopen(executable, sessionId, title = "") {
+    if (this.state !== "ready" || this.messages.length || this.configPending || this.resetting || this.disposed) return;
+    const { draft, selection, file } = this;
+    if (!await this.newChat()) return;
+    this.draft = draft;
+    this.selection = selection;
+    this.file = file;
+    await this.connect(executable);
+    if (this.state === "connected") await this.open(sessionId, title);
   }
   // Lists this vault's past chats so the user can reopen one. Starts the
   // agent when needed; the chat itself is opened only on a choice.
@@ -1395,6 +1426,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.title = "";
     this.history = null;
     this.loading = false;
+    this.recent = null;
     this.forceAvailable = false;
     this.resetting = false;
     this.state = "not-started";
@@ -6777,7 +6809,7 @@ var ChatPanel = class {
       this.path,
       this.el("p", "sir-scribbles-caption", "The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers."),
       launchRow,
-      this.el("p", "sir-scribbles-caption", "Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Open a past chat lists the conversations the agent kept for this vault.")
+      this.el("p", "sir-scribbles-caption", "Start the agent first to choose a model other than its default; sending a prompt right away uses the default. Once started, the empty chat also lists past chats for this vault. Open a past chat goes straight to that list.")
     );
     this.pathHelp = this.el("p", "sir-scribbles-caption", "Executable saved. Send your first prompt to start the agent, or use Start agent. Change the path in Settings \u2192 Community plugins \u2192 Sir Scribbles.");
     this.startArea.append(this.pathHelp);
@@ -6850,7 +6882,8 @@ var ChatPanel = class {
     try {
       if (!saved) await this.actions.savePath(executable);
       if (this.disposed || generation !== this.model.generation) return;
-      await this.model[method](executable);
+      if (method === "start") await this.model.start(executable, { listPast: true });
+      else await this.model[method](executable);
     } catch {
       if (!this.disposed && generation === this.model.generation) this.model.setError("EXECUTABLE_NOT_AVAILABLE");
     } finally {
@@ -6928,10 +6961,12 @@ var ChatPanel = class {
     this.renderModel();
     this.renderHistory();
   }
-  // Past chats for this vault, shown after the agent starts for browsing.
+  // Past chats for this vault: the picker after Open a past chat, or the
+  // offer in a chat started with Start agent until its first message.
   renderHistory() {
     const model = this.model;
-    const history = model.state === "connected" && !model.loading ? model.history : null;
+    const offered = model.state === "ready" && !model.messages.length && !model.loading ? model.recent : null;
+    const history = model.state === "connected" && !model.loading ? model.history : offered;
     if (history === this.lastHistory) return;
     this.lastHistory = history;
     this.historyArea.replaceChildren();
@@ -6951,7 +6986,8 @@ var ChatPanel = class {
         const item = this.el("li");
         const title = entry.title || "Untitled chat";
         const button = this.button("", () => {
-          void model.open(entry.sessionId, entry.title);
+          if (offered) void model.reopen(this.actions.getPath().trim(), entry.sessionId, entry.title);
+          else void model.open(entry.sessionId, entry.title);
         }, "sir-scribbles-history-item");
         button.append(this.el("span", "sir-scribbles-history-title", title));
         if (entry.updatedAt !== null) {
@@ -6967,6 +7003,7 @@ var ChatPanel = class {
       }
       this.historyArea.append(list2);
     }
+    if (offered) return;
     const fresh = this.button("Start a new chat", () => {
       void model.open();
     }, "sir-scribbles-secondary");
