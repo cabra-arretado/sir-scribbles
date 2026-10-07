@@ -51,7 +51,7 @@ class Fixture {
     };
     setTimeout(burst, 600);
   }
-  decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId === 'allow' ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
+  decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId.endsWith('allow') ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
 const PAST = [
@@ -98,6 +98,6 @@ document.getElementById('conversation').onclick = () => {
 document.getElementById('approval').onclick = () => {
   model.newChat(); model.start(); model.state = 'waiting-for-approval';
   model.messages = [{ role: 'user', text: 'Save that principle to a new note.' }, { role: 'agent', text: 'I can create a short note. Please review the exact action below.' }];
-  model.session.permissions.set(1, { id: 1, params: { sessionId: 'preview', toolCall: { toolCallId: 'write-1', title: 'Create Product principle.md', kind: 'edit', locations: [{ path: '/Users/you/Notes/Studio/Product principle.md' }], rawInput: { path: '/Users/you/Notes/Studio/Product principle.md', contents: 'Keep the user in the loop.\nStart deliberately. Share context explicitly. Review every action.' } }, _meta: { kiro: { consent: { capability: 'fs_write', workspaceRoot: model.cwd } } } }, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }] });
+  model.session.permissions.set(1, { id: 1, params: { sessionId: 'preview', toolCall: { toolCallId: 'write-1', title: 'Create Product principle.md', kind: 'edit', locations: [{ path: '/Users/you/Notes/Studio/Product principle.md' }], rawInput: { path: '/Users/you/Notes/Studio/Product principle.md', contents: 'Keep the user in the loop.\nStart deliberately. Share context explicitly. Review every action.' } }, _meta: { kiro: { consent: { capability: 'fs_write', workspaceRoot: model.cwd } } } }, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'always-allow', name: 'Always allow', kind: 'allow_always' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }, { optionId: 'always-deny', name: 'Always deny', kind: 'reject_always' }], rule: { capability: 'fs_write', resource: '/Users/you/Notes/Studio/Product principle.md', workspaceRoot: model.cwd } });
   model.changed();
 };

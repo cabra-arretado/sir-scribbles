@@ -47,7 +47,8 @@ function showActive() {
     missing: ['locations', 'rawInput', 'kind', 'title'].filter(key => active.params.toolCall[key] == null),
     context: active.params._meta?.kiro?.consent ?? 'Working-directory/consent context not supplied',
     decisions: active.options,
-    instruction: 'Use /choose followed by the exact offered one-time optionId. /stop cancels.',
+    rule: active.rule ?? 'None: always choices are not offered for this request',
+    instruction: 'Use /choose followed by the exact offered optionId. Always choices save the rule above in the agent. /stop cancels.',
   });
 }
 
@@ -115,7 +116,7 @@ try {
           const option = active?.options.find(candidate => candidate.optionId === optionId);
           if (active && option && session.decide(active.id, optionId)) {
             counts[option.kind === 'allow_once' ? 'allowed' : 'denied']++;
-          } else display('control', 'No matching active one-time choice');
+          } else display('control', 'No matching active choice');
           return;
         }
         if (session.state !== 'ready') { display('control', 'Wait for Ready; prompt was not sent'); return; }

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { TextDecoder } from 'node:util';
 import { LIMITS, OperationalError, isRecord, mergeDefined } from './limits.js';
-import { inspectPermission, cancelledPermission, selectedPermission } from './permissions.js';
+import { inspectPermission, cancelledPermission, selectedPermission, isPersistent } from './permissions.js';
 import { terminateOwnedProcess } from './process.js';
 
 const validId = id => (typeof id === 'string' && id.length > 0) || Number.isSafeInteger(id);
@@ -102,6 +102,7 @@ export class AcpSession extends EventEmitter {
     this.terminate = terminate;
     this.state = 'not-started';
     this.sessionId = null;
+    this.cwd = null;
     this.configOptions = [];
     this.startupUpdates = [];
     this.pending = new Map();
@@ -239,13 +240,13 @@ export class AcpSession extends EventEmitter {
     const resolved = isRecord(params?.toolCall)
       ? { ...params, toolCall: this.mergeToolCall(params.toolCall, this.toolCalls.get(params.toolCall.toolCallId)) }
       : params;
-    const inspected = inspectPermission(resolved);
+    const inspected = inspectPermission(resolved, this.cwd);
     if (!inspected.supported) {
       this.reply(id, cancelledPermission());
       this.emit('unsupported-permission', inspected.reason);
       return;
     }
-    const card = { id, params: resolved, request: params, options: inspected.options, unrecognized: inspected.unrecognized };
+    const card = { id, params: resolved, request: params, options: inspected.options, unrecognized: inspected.unrecognized, rule: inspected.rule };
     this.permissions.set(key, card);
     this.setState('waiting-for-approval');
     this.emit('permission', card);
@@ -255,10 +256,10 @@ export class AcpSession extends EventEmitter {
     const key = idKey(id);
     const card = this.permissions.get(key);
     const active = this.permissions.values().next().value;
-    if (this.state !== 'waiting-for-approval' || !card || active !== card ||
-        !card.options.some(option => option.optionId === optionId)) return false;
+    const option = card?.options.find(entry => entry.optionId === optionId);
+    if (this.state !== 'waiting-for-approval' || !card || active !== card || !option) return false;
     this.permissions.delete(key); // Decision is single-use even under synchronous listeners.
-    this.reply(id, selectedPermission(optionId));
+    this.reply(id, selectedPermission(optionId, isPersistent(option) ? card.rule : null));
     this.setState(this.permissions.size ? 'waiting-for-approval' : 'working');
     this.emit('permission-settled', id);
     return true;
@@ -334,6 +335,7 @@ export class AcpSession extends EventEmitter {
   async open(cwd, sessionId = null) {
     if (this.state !== 'connected') throw new OperationalError('START_NOT_AVAILABLE');
     if (sessionId !== null && (!this.canLoad() || !label(sessionId))) throw new OperationalError('LOAD_NOT_SUPPORTED');
+    this.cwd = cwd;
     this.setState('starting');
     this.startupTimer = setTimeout(() => this.fail('STARTUP_TIMEOUT'), sessionId ? this.limits.loadMs : this.limits.startupMs);
     try {

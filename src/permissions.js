@@ -4,9 +4,9 @@ const knownKinds = new Set(['allow_once', 'reject_once', 'allow_always', 'reject
 const consentStrings = ['capability', 'resource', 'triggeringResource', 'workspaceRoot'];
 
 // Kiro documents consent metadata as open-ended and asks clients to preserve
-// unknown fields. This client only ever replies with a one-time option and never
-// returns consent metadata, so unrecognized metadata cannot widen a decision.
-// List it for the approval card instead of cancelling the request.
+// unknown fields. List it for the approval card instead of cancelling the
+// request; while any is present, only one-time choices are offered, so
+// metadata this client does not understand can never become a saved rule.
 function unrecognizedMetadata(meta) {
   if (meta === undefined) return [];
   if (!isRecord(meta)) return ['_meta'];
@@ -31,7 +31,11 @@ function unrecognizedMetadata(meta) {
 // ACP permission tool calls are partial updates. Missing descriptive fields
 // must not suppress the user's decision; preserve metadata and offered IDs.
 // Option semantics stay strict: they define what the user's click means.
-export function inspectPermission(params) {
+//
+// "Always" choices are offered only when the agent marks the consent as
+// persistable for this exact workspace and names what it covers. The client
+// then answers with a workspace-scoped rule for exactly that resource.
+export function inspectPermission(params, workspaceRoot = null) {
   if (!isRecord(params) || typeof params.sessionId !== 'string' || !isRecord(params.toolCall)) {
     return { supported: false, reason: 'INVALID_PERMISSION' };
   }
@@ -53,11 +57,23 @@ export function inspectPermission(params) {
     }
     ids.add(option.optionId);
   }
-  const options = params.options.filter(option => ['allow_once', 'reject_once'].includes(option.kind));
-  return options.length
-    ? { supported: true, options, unrecognized: unrecognizedMetadata(params._meta) }
-    : { supported: false, reason: 'NO_ONE_TIME_OPTIONS' };
+  const unrecognized = unrecognizedMetadata(params._meta);
+  const once = params.options.filter(option => ['allow_once', 'reject_once'].includes(option.kind));
+  if (!once.length) return { supported: false, reason: 'NO_ONE_TIME_OPTIONS' };
+  const consent = params._meta?.kiro?.consent;
+  const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent === true &&
+    typeof consent.capability === 'string' && consent.capability.length > 0 &&
+    typeof consent.resource === 'string' && consent.resource.length > 0 &&
+    typeof workspaceRoot === 'string' && consent.workspaceRoot === workspaceRoot;
+  if (!persistable) return { supported: true, options: once, unrecognized, rule: null };
+  // Keep the agent's order so choices appear as offered.
+  const options = params.options.filter(option => knownKinds.has(option.kind));
+  return { supported: true, options, unrecognized, rule: { capability: consent.capability, resource: consent.resource, workspaceRoot } };
 }
 
+export const isPersistent = option => option.kind === 'allow_always' || option.kind === 'reject_always';
 export const cancelledPermission = () => ({ outcome: { outcome: 'cancelled' } });
-export const selectedPermission = optionId => ({ outcome: { outcome: 'selected', optionId } });
+// A persistent choice names its rule: this workspace only, this resource only.
+export const selectedPermission = (optionId, rule = null) => rule
+  ? { outcome: { outcome: 'selected', optionId }, _meta: { kiro: { consent: { scope: 'workspace', resource: rule.resource, workspaceRoot: rule.workspaceRoot } } } }
+  : { outcome: { outcome: 'selected', optionId } };

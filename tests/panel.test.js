@@ -395,3 +395,25 @@ test('past chats list opens the chosen chat or a new one; replayed rows have no 
   assert.equal(panel.historyArea.hidden, true);
   assert.equal(panel.transcript.querySelector('.sir-scribbles-user time'), null);
 });
+
+test('always choices appear only with a rule and say exactly what is saved', t => {
+  const { model, panel, root } = create(t);
+  const card = { id: 9, params: { toolCall: { toolCallId: 'run', title: 'Run tests', kind: 'execute', rawInput: {} } },
+    options: [
+      { optionId: 'accept', name: 'Allow', kind: 'allow_once' },
+      { optionId: 'always-accept', name: 'Always allow', kind: 'allow_always' },
+      { optionId: 'reject', name: 'Deny', kind: 'reject_once' },
+      { optionId: 'always-reject', name: 'Always deny', kind: 'reject_always' },
+    ],
+    rule: { capability: 'shell', resource: '<b>npm test</b>', workspaceRoot: '/fixture-vault' } };
+  let decided;
+  model.session = { permissions: new Map([[9, card]]), decide: (id, option) => { decided = option; model.session.permissions.clear(); return true; } };
+  model.state = 'waiting-for-approval';
+  panel.render();
+  const buttons = [...root.querySelectorAll('.sir-scribbles-decisions button')];
+  assert.deepEqual(buttons.map(button => button.textContent.split(' · ')[0]), ['Allow once', 'Always allow', 'Deny once', 'Always deny']);
+  assert.equal(root.querySelector('.sir-scribbles-rule code').textContent, 'shell · <b>npm test</b>');
+  assert.equal(root.querySelectorAll('.sir-scribbles-permission-area b').length, 0);
+  buttons[1].click();
+  assert.equal(decided, 'always-accept');
+});

@@ -93,8 +93,17 @@ The executable path is now stored on this device per vault, not in the vault's
    to this vault) open through Obsidian when clicked. Headings and block references
    are supported. Cmd/Ctrl+click opens a new tab. Relative paths use the note
    attached or active when the prompt was sent, even if you switch notes later.
-5. Review the complete JSON action details before choosing an offered one-time
-   Allow or Deny option. Partial requests use earlier details from the same tool
+5. Review the complete JSON action details before choosing an offered option.
+   **Allow once** and **Deny once** apply to this request only. When Kiro offers
+   **Always allow** or **Always deny**, the card names exactly what the rule
+   covers (for example `shell · npm run test`). Choosing it asks Kiro to save
+   that rule for this vault only, in Kiro's own workspace settings outside the
+   vault, and Kiro stops asking for it in every chat. The plugin never widens the
+   rule or saves it for all projects. Always choices are hidden when Kiro does
+   not mark the request as persistable, when its workspace is not this vault, or
+   when the request carries metadata the plugin does not recognize. To edit or
+   remove a saved rule, change Kiro's workspace `permissions.yaml` (under
+   `~/.kiro/workspace-roots/`). Partial requests use earlier details from the same tool
    call; missing arguments are identified in the approval card. Unsupported
    consent semantics still cancel the request.
    Existing Kiro policy may allow actions without asking the sidebar.
