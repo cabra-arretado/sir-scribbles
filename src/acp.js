@@ -104,7 +104,10 @@ export class AcpSession extends EventEmitter {
     this.sessionId = null;
     this.cwd = null;
     this.configOptions = [];
-    this.configVersion = 0; // Bumped by every confirmed option list.
+    // Ordering for option lists: each change request and each agent update
+    // takes the next number; configStamp is the number behind the shown list.
+    this.configSeq = 0;
+    this.configStamp = 0;
     this.startupUpdates = [];
     this.pending = new Map();
     this.expired = new Map(); // Timed-out request ID → handler for a late result, or null.
@@ -229,9 +232,9 @@ export class AcpSession extends EventEmitter {
     this.emit('update', update);
   }
 
-  setConfigOptions(input) {
+  setConfigOptions(input, stamp = ++this.configSeq) {
     this.configOptions = sanitizeConfigOptions(input, this.limits);
-    this.configVersion++;
+    this.configStamp = stamp;
     this.emit('config-options', this.configOptions);
   }
 
@@ -430,13 +433,13 @@ export class AcpSession extends EventEmitter {
     const option = this.configOptions.find(entry => entry.id === configId);
     if (!option?.options.some(entry => entry.value === value)) throw new OperationalError('CONFIG_VALUE_UNKNOWN');
     let result;
-    // A late confirmation still reports the agent's options, unless a newer
-    // confirmed change or agent update arrived since; its snapshot may then
-    // predate the current state, so the newer one is kept.
-    const version = this.configVersion;
+    // A late confirmation still reports the agent's options, unless the
+    // shown list came from a later request or agent update; the late
+    // snapshot may predate it. A later request's late reply still wins.
+    const seq = ++this.configSeq;
     const late = result => {
-      if (!this.transportClosed && this.configVersion === version && isRecord(result) && Array.isArray(result.configOptions)) {
-        this.setConfigOptions(result.configOptions);
+      if (!this.transportClosed && seq > this.configStamp && isRecord(result) && Array.isArray(result.configOptions)) {
+        this.setConfigOptions(result.configOptions, seq);
       }
     };
     try { result = await this.request('session/set_config_option', { sessionId: this.sessionId, configId, value }, { timeoutMs: this.limits.requestMs, late }); }
@@ -446,7 +449,7 @@ export class AcpSession extends EventEmitter {
     }
     if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
     if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError('CONFIG_REJECTED');
-    this.setConfigOptions(result.configOptions);
+    this.setConfigOptions(result.configOptions, seq);
     return this.configOptions;
   }
 
