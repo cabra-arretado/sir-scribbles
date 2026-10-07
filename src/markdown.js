@@ -114,6 +114,9 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
     if (!openNote) return;
     element.classList.add('internal-link');
     element.setAttribute('href', '#');
+    // Streaming reuses unchanged nodes, and `isEqualNode` ignores listeners:
+    // record the destination so a link whose target changed is replaced.
+    element.dataset.note = JSON.stringify(target);
     element.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
@@ -195,10 +198,17 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '' } 
   append(markdown.parse(source, {}));
   // Keep leading blocks that did not change, so streaming only touches the
   // tail: earlier paragraphs do not reflow and a text selection survives.
-  const previous = [...container.childNodes];
-  const next = [...fragment.childNodes];
-  let same = 0;
-  while (same < previous.length && same < next.length && previous[same].isEqualNode(next[same])) same++;
-  for (const node of previous.slice(same)) node.remove();
-  container.append(...next.slice(same));
+  // Walk siblings rather than copying node lists, and append the fragment
+  // itself: spreading a long reply into arguments overflows the stack.
+  let kept = container.firstChild;
+  while (kept && fragment.firstChild?.isEqualNode(kept)) {
+    fragment.firstChild.remove();
+    kept = kept.nextSibling;
+  }
+  while (kept) {
+    const stale = kept;
+    kept = kept.nextSibling;
+    stale.remove();
+  }
+  container.append(fragment);
 }

@@ -4,8 +4,22 @@ import { JSDOM } from 'jsdom';
 import { ChatController } from '../src/chat.js';
 import { ChatPanel } from '../src/panel.js';
 
-function create(t) {
+function create(t, { frames = false } = {}) {
   const dom = new JSDOM('<main></main>', { url: 'https://fixture.test' });
+  // Controlled animation frames: `frame()` runs the pending callbacks once.
+  const pending = new Map();
+  let frameId = 0;
+  let clock = 0;
+  if (frames) {
+    dom.window.requestAnimationFrame = callback => { pending.set(++frameId, callback); return frameId; };
+    dom.window.cancelAnimationFrame = id => { pending.delete(id); };
+  }
+  const frame = (ms = 16) => {
+    clock += ms;
+    const callbacks = [...pending.values()];
+    pending.clear();
+    for (const callback of callbacks) callback(clock);
+  };
   const model = new ChatController('/fixture-vault');
   let attached = 0;
   let copied = '';
@@ -18,7 +32,7 @@ function create(t) {
     copyText: async text => { copied = text; },
   });
   t.after(() => { panel.dispose(); dom.window.close(); });
-  return { dom, model, root, panel, attached: () => attached, copied: () => copied };
+  return { dom, model, root, panel, frame, pending, attached: () => attached, copied: () => copied };
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 50));
 
@@ -288,4 +302,37 @@ test('wiki and Markdown note links open only on click with the reply source path
   assert.equal(root.querySelector('code').textContent, '[[Code]]');
   assert.ok(root.textContent.includes('![[Embed]]'));
   assert.equal(root.querySelectorAll('a[href^="obsidian:"]').length, 0);
+});
+
+test('an animated reply keeps unfinished syntax settled between bursts until the turn ends', t => {
+  const { model, panel, root, frame } = create(t, { frames: true });
+  model.state = 'working';
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hello **bo' } });
+  panel.render();
+  for (let i = 0; i < 60; i++) frame();
+  assert.equal(panel.streaming.size, 0);
+  const body = root.querySelector('.sir-scribbles-markdown');
+  assert.equal(body.querySelector('strong')?.textContent, 'bo');
+  assert.ok(!body.textContent.includes('**'));
+  model.state = 'ready';
+  model.changed();
+  panel.render();
+  assert.equal(body.querySelector('strong'), null);
+  assert.equal(body.textContent, 'Hello **bo');
+});
+
+test('New chat during an animated reply stops animating the discarded row', t => {
+  const { model, panel, frame, pending } = create(t, { frames: true });
+  model.state = 'working';
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'word '.repeat(4000) } });
+  panel.render();
+  frame();
+  assert.equal(panel.streaming.size, 1);
+  model.messages = [];
+  model.state = 'not-started';
+  panel.render();
+  assert.equal(panel.rows.size, 0);
+  assert.equal(panel.streaming.size, 0);
+  assert.equal(pending.size, 0);
+  assert.equal(panel.frame, null);
 });
