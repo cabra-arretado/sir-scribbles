@@ -137,16 +137,23 @@ export class TabbedPanel {
     const unsaved = chat.messages.length || chat.draft || chat.selection || chat.file || BUSY.includes(chat.state);
     if (unsaved && !(await this.actions.confirmClose(chat))) return;
     if (!(await this.tabs.close(chat)) && !this.disposed && this.tabs.chats.includes(chat)) {
-      chat.setError('CLEANUP_UNCERTAIN');
+      // Disposing removed the panel's subscription with every other listener.
+      // Rebuild it so the recovered state and Force stop are visible and live.
+      this.discard(chat);
+      this.render();
     }
   }
+  discard(chat) {
+    const entry = this.entries.get(chat);
+    if (!entry) return;
+    entry.panel.dispose();
+    entry.pane.remove();
+    entry.tab.remove();
+    this.entries.delete(chat);
+  }
   render() {
-    for (const [chat, entry] of this.entries) {
-      if (this.tabs.chats.includes(chat)) continue;
-      entry.panel.dispose();
-      entry.pane.remove();
-      entry.tab.remove();
-      this.entries.delete(chat);
+    for (const chat of [...this.entries.keys()]) {
+      if (!this.tabs.chats.includes(chat)) this.discard(chat);
     }
     for (const chat of this.tabs.chats) {
       let entry = this.entries.get(chat);

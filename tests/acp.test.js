@@ -445,3 +445,24 @@ test('a refused listing keeps the agent; a refused load ends it', async t => {
   await assert.rejects(missing.open('/fixture', 'missing'), { code: 'AGENT_REQUEST_FAILED' });
   assert.equal(missing.state, 'failed');
 });
+
+test('a silent listing times out, leaves the agent connected and ignores the late reply', async t => {
+  const session = create(t, 'history-stall', { requestMs: 50 });
+  await session.connect();
+  await assert.rejects(session.listSessions('/fixture'), { code: 'HISTORY_TIMEOUT' });
+  await delay(200);
+  assert.equal(session.state, 'connected');
+  await session.open('/fixture');
+  assert.equal(session.state, 'ready');
+});
+
+test('an unconfirmed model change times out; a late confirmation still updates the options', async t => {
+  const session = create(t, 'config-stall', { requestMs: 50 });
+  await session.start('/fixture');
+  await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_TIMEOUT' });
+  assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'auto');
+  const updated = once(session, 'config-options');
+  await updated;
+  assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'opus');
+  assert.equal(session.state, 'ready');
+});

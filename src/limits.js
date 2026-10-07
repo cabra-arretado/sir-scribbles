@@ -11,6 +11,7 @@ export const LIMITS = Object.freeze({
   historyPages: 5,
   startupMs: 15_000,
   loadMs: 60_000,
+  requestMs: 15_000,
   cancellationMs: 5_000,
   shutdownMs: 2_000,
 });

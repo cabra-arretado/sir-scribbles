@@ -106,6 +106,7 @@ export class AcpSession extends EventEmitter {
     this.configOptions = [];
     this.startupUpdates = [];
     this.pending = new Map();
+    this.expired = new Map(); // Timed-out request ID → handler for a late result, or null.
     this.permissions = new Map();
     this.toolCalls = new Map();
     this.seenPermissionIds = new Set();
@@ -158,12 +159,22 @@ export class AcpSession extends EventEmitter {
     this.child.stdin.write(encoded);
   }
 
-  request(method, params) {
+  // With a deadline, a silent agent cannot hold the caller forever. A reply
+  // that arrives after it is ignored, or handed to `late` when it succeeded.
+  request(method, params, { timeoutMs = 0, late = null } = {}) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const entry = { resolve, reject, timer: null };
+      if (timeoutMs) entry.timer = setTimeout(() => {
+        if (this.pending.get(id) !== entry) return;
+        this.pending.delete(id);
+        if (this.expired.size >= this.limits.permissions) { this.fail('REQUEST_TIMEOUT'); return; }
+        this.expired.set(id, late);
+        reject(new OperationalError('REQUEST_TIMEOUT'));
+      }, timeoutMs);
+      this.pending.set(id, entry);
       try { this.write({ jsonrpc: '2.0', id, method, params }); }
-      catch (error) { this.pending.delete(id); reject(error); this.fail(error.code || 'WRITE_FAILED'); }
+      catch (error) { clearTimeout(entry.timer); this.pending.delete(id); reject(error); this.fail(error.code || 'WRITE_FAILED'); }
     });
   }
 
@@ -193,7 +204,14 @@ export class AcpSession extends EventEmitter {
       throw new OperationalError('INVALID_RESPONSE');
     }
     const pending = this.pending.get(frame.id);
-    if (!pending) throw new OperationalError('UNMATCHED_RESPONSE');
+    if (!pending) {
+      if (!this.expired.has(frame.id)) throw new OperationalError('UNMATCHED_RESPONSE');
+      const late = this.expired.get(frame.id);
+      this.expired.delete(frame.id);
+      if (late && Object.hasOwn(frame, 'result')) late(frame.result);
+      return;
+    }
+    clearTimeout(pending.timer);
     this.pending.delete(frame.id);
     // Do not copy the server's potentially sensitive message into diagnostics.
     if (Object.hasOwn(frame, 'error')) pending.reject(new OperationalError('AGENT_REQUEST_FAILED'));
@@ -315,8 +333,11 @@ export class AcpSession extends EventEmitter {
     let cursor;
     for (let page = 0; page < this.limits.historyPages && entries.length < this.limits.historyEntries; page++) {
       let result;
-      try { result = await this.request('session/list', cursor ? { cwd, cursor } : { cwd }); }
-      catch (error) { throw new OperationalError(this.transportClosed ? error.code : 'HISTORY_UNAVAILABLE'); }
+      try { result = await this.request('session/list', cursor ? { cwd, cursor } : { cwd }, { timeoutMs: this.limits.requestMs }); }
+      catch (error) {
+        if (this.transportClosed) throw error;
+        throw new OperationalError(error.code === 'REQUEST_TIMEOUT' ? 'HISTORY_TIMEOUT' : 'HISTORY_UNAVAILABLE');
+      }
       if (!isRecord(result) || !Array.isArray(result.sessions)) throw new OperationalError('HISTORY_UNAVAILABLE');
       for (const item of result.sessions) {
         if (entries.length >= this.limits.historyEntries) break;
@@ -406,8 +427,13 @@ export class AcpSession extends EventEmitter {
     const option = this.configOptions.find(entry => entry.id === configId);
     if (!option?.options.some(entry => entry.value === value)) throw new OperationalError('CONFIG_VALUE_UNKNOWN');
     let result;
-    try { result = await this.request('session/set_config_option', { sessionId: this.sessionId, configId, value }); }
-    catch (error) { throw new OperationalError(this.transportClosed ? error.code : 'CONFIG_REJECTED'); }
+    // A late confirmation still reports the agent's actual options.
+    const late = result => { if (!this.transportClosed && isRecord(result) && Array.isArray(result.configOptions)) this.setConfigOptions(result.configOptions); };
+    try { result = await this.request('session/set_config_option', { sessionId: this.sessionId, configId, value }, { timeoutMs: this.limits.requestMs, late }); }
+    catch (error) {
+      if (this.transportClosed) throw error;
+      throw new OperationalError(error.code === 'REQUEST_TIMEOUT' ? 'CONFIG_TIMEOUT' : 'CONFIG_REJECTED');
+    }
     if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
     if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError('CONFIG_REJECTED');
     this.setConfigOptions(result.configOptions);
@@ -438,8 +464,9 @@ export class AcpSession extends EventEmitter {
     clearTimeout(this.startupTimer);
     clearTimeout(this.stopTimer);
     this.startupTimer = this.stopTimer = null;
-    for (const pending of this.pending.values()) pending.reject(new OperationalError(code));
+    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new OperationalError(code)); }
     this.pending.clear();
+    this.expired.clear();
     this.startupUpdates = [];
     this.setState(state);
     this.emit('failure', code);

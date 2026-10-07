@@ -417,3 +417,15 @@ test('always choices appear only with a rule and say exactly what is saved', t =
   buttons[1].click();
   assert.equal(decided, 'always-accept');
 });
+
+test('a replay that finishes before the scheduled render is shown at once, not animated', async t => {
+  const { model, panel } = create(t, { frames: true });
+  panel.render();
+  model.loading = true;
+  model.update({ sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: 'x'.repeat(1200) } });
+  model.loading = false;
+  model.changed();
+  await tick();
+  assert.equal(panel.streaming.size, 0);
+  assert.equal(panel.transcript.querySelector('.sir-scribbles-agent .sir-scribbles-markdown').textContent.length, 1200);
+});
