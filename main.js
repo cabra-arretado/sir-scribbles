@@ -1178,14 +1178,11 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.changed();
   }
   // Leaves the empty chat for a past one. The agent restarts so the past chat
-  // opens the same way as from Open a past chat; the draft carries over.
+  // opens the same way as from Open a past chat. The composer stays live
+  // throughout, so edits made while the old process closes are kept.
   async reopen(executable, sessionId, title = "") {
     if (this.state !== "ready" || this.messages.length || this.configPending || this.resetting || this.disposed) return;
-    const { draft, selection, file } = this;
-    if (!await this.newChat()) return;
-    this.draft = draft;
-    this.selection = selection;
-    this.file = file;
+    if (!await this.newChat({ keepComposer: true })) return;
     await this.connect(executable);
     if (this.state === "connected") await this.open(sessionId, title);
   }
@@ -1394,7 +1391,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     }
     this.changed();
   }
-  async newChat() {
+  async newChat({ keepComposer = false } = {}) {
     if (this.resetting || this.disposed) return false;
     this.resetting = true;
     ++this.generation;
@@ -1414,9 +1411,11 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.messages = [];
     this.turnSourcePath = "";
     this.tools.clear();
-    this.draft = "";
-    this.selection = null;
-    this.file = null;
+    if (!keepComposer) {
+      this.draft = "";
+      this.selection = null;
+      this.file = null;
+    }
     this.identity = "";
     this.configOptions = [];
     this.configPending = false;
