@@ -2,7 +2,7 @@ import { ChatPanel } from '../src/panel.js';
 
 // Development-only UI fixtures. Not bundled into the Obsidian plugin.
 class Fixture {
-  constructor() { this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.identity = ''; this.error = ''; this.session = { permissions: new Map() }; }
+  constructor() { this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.identity = ''; this.error = ''; this.configOptions = []; this.configPending = false; this.session = { permissions: new Map() }; }
   on(event, fn) { this.listeners.add(fn); }
   off(event, fn) { this.listeners.delete(fn); }
   changed() { for (const fn of this.listeners) fn(); }
@@ -12,8 +12,14 @@ class Fixture {
   removeSelection() { this.selection = null; this.changed(); }
   activePermission() { return this.session.permissions.values().next().value ?? null; }
   setError() { this.error = 'Preview only. No agent executable is launched.'; this.changed(); }
-  start() { this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.changed(); }
-  newChat() { this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
+  modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
+  setModel(value) {
+    // Mimic the round trip: the agent replies with the full option list.
+    this.configPending = true; this.changed();
+    setTimeout(() => { this.configOptions = models(value); this.configPending = false; this.changed(); }, 400);
+  }
+  start() { this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.configOptions = models('auto'); this.changed(); }
+  newChat() { this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
   send() {
     this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' });
     this.draft = ''; this.selection = null; this.file = null; this.state = 'working'; this.changed();
@@ -33,6 +39,12 @@ class Fixture {
   decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId === 'allow' ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
+const models = current => [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
+  { value: 'auto', name: 'Auto', description: 'Picks a model for each task' },
+  { value: 'claude-sonnet', name: 'Claude Sonnet', group: 'Claude' },
+  { value: 'claude-opus', name: 'Claude Opus', group: 'Claude' },
+  { value: 'claude-haiku', name: 'Claude Haiku', group: 'Claude' },
+] }];
 const STREAM = 'This is an interactive UI preview. In the plugin, your prompt goes to the **local agent process** and its reply streams back in uneven bursts.\n\n## What you are seeing\n\n- Text eases in at a pace that follows the *backlog*, not each burst.\n- Unfinished `inline code`, **bold** and [links](https://example.com) never flash as raw syntax.\n- Earlier paragraphs stay put while the tail grows.\n\n```js\nconst principle = "Keep the user in the loop";\n```\n\nSee [[Projects/Launch notes|Launch notes]] for the original.';
 // Stand-in for Obsidian's setIcon with the few Lucide icons the panel uses.
 const ICONS = {

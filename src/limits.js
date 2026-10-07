@@ -4,6 +4,8 @@ export const LIMITS = Object.freeze({
   session: 16 * 1024 * 1024,
   stderr: 64 * 1024,
   permissions: 16,
+  configOptions: 32,
+  configValues: 256,
   startupMs: 15_000,
   cancellationMs: 5_000,
   shutdownMs: 2_000,

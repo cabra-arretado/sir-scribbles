@@ -19,6 +19,13 @@ const permission = id => output({ id, method: 'session/request_permission', para
   ],
   _meta: { kiro: { consent: { capability: 'shell', resource: 'printf', workspaceRoot: '/fixture', persistableConsent: true } } },
 } });
+const models = current => [
+  { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'default', options: [{ value: 'default', name: 'Default' }] },
+  { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
+    { value: 'auto', name: 'Auto', description: 'Picks for you' },
+    { group: 'claude', name: 'Claude', options: [{ value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }] },
+  ] },
+];
 let promptId;
 let pendingChoice = false;
 let grandchild;
@@ -38,9 +45,13 @@ input.on('line', line => {
       agentInfo: { name: 'fixture', version: 'test' },
     });
   } else if (frame.method === 'session/new') {
-    reply(frame.id, { sessionId: 'fixture-session' });
+    reply(frame.id, mode.startsWith('config') ? { sessionId: 'fixture-session', configOptions: models('auto') } : { sessionId: 'fixture-session' });
     if (grandchild) update({ sessionUpdate: 'fixture-child', pid: grandchild.pid });
+  } else if (frame.method === 'session/set_config_option') {
+    if (mode === 'config-reject') output({ id: frame.id, error: { code: -32602, message: 'private detail' } });
+    else reply(frame.id, { configOptions: models(frame.params.value) });
   } else if (frame.method === 'session/prompt') {
+    if (mode === 'config') update({ sessionUpdate: 'config_option_update', configOptions: models('opus') });
     promptId = frame.id;
     if (mode === 'transport-loss') { process.stdout.end(); return; }
     if (mode === 'permission' || mode === 'duplicate' || mode === 'queue' || mode === 'queue-overflow') {

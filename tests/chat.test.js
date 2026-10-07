@@ -305,3 +305,51 @@ test('deep tool output stays within its compact budget and preserves all supplie
   assert.equal(controller.messages.length, 1);
   assert.equal(controller.tools.get('nested').data.status, undefined);
 });
+
+const modelOptions = current => [
+  { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'default', options: [{ value: 'default', name: 'Default' }] },
+  { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [{ value: 'auto', name: 'Auto' }, { value: 'opus', name: 'Opus' }] },
+];
+
+test('model choice comes from the agent, changes between turns and resets with a new chat', async () => {
+  const { controller, session } = create();
+  session.start = async () => { session.emit('state', 'ready'); return { identity: { name: 'fixture' }, configOptions: modelOptions('auto') }; };
+  const requests = [];
+  let settle;
+  session.setConfigOption = (id, value) => {
+    requests.push([id, value]);
+    return new Promise(resolve => { settle = () => { session.emit('config-options', modelOptions(value)); resolve(); }; });
+  };
+  assert.equal(controller.modelOption(), null);
+  await controller.start('/fixture');
+  assert.equal(controller.modelOption().currentValue, 'auto');
+  await controller.setModel('auto');
+  assert.deepEqual(requests, []);
+  const changing = controller.setModel('opus');
+  assert.equal(controller.configPending, true);
+  controller.setDraft('blocked while changing');
+  await controller.send();
+  assert.deepEqual(session.sent, []);
+  await controller.setModel('auto');
+  assert.deepEqual(requests, [['model', 'opus']]);
+  settle();
+  await changing;
+  assert.equal(controller.configPending, false);
+  assert.equal(controller.modelOption().currentValue, 'opus');
+  session.emit('config-options', modelOptions('auto'));
+  assert.equal(controller.modelOption().currentValue, 'auto');
+  await controller.newChat();
+  assert.deepEqual(controller.configOptions, []);
+});
+
+test('a rejected model change reports an error and keeps the session ready', async () => {
+  const { controller, session } = create();
+  session.start = async () => { session.emit('state', 'ready'); return { configOptions: modelOptions('auto') }; };
+  session.setConfigOption = async () => { throw new OperationalError('CONFIG_REJECTED'); };
+  await controller.start('/fixture');
+  await controller.setModel('opus');
+  assert.match(controller.error, /did not change the model/);
+  assert.equal(controller.state, 'ready');
+  assert.equal(controller.configPending, false);
+  assert.equal(controller.modelOption().currentValue, 'auto');
+});

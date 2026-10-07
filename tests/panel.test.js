@@ -336,3 +336,35 @@ test('New chat during an animated reply stops animating the discarded row', t =>
   assert.equal(pending.size, 0);
   assert.equal(panel.frame, null);
 });
+
+test('model picker appears only when the agent offers models and follows its state', async t => {
+  const { model, root, dom } = create(t);
+  const picker = root.querySelector('.sir-scribbles-model');
+  assert.equal(picker.hidden, true);
+  const chosen = [];
+  model.session = { permissions: new Map(), setConfigOption: async (id, value) => { chosen.push([id, value]); } };
+  model.state = 'ready';
+  model.configOptions = [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'opus', options: [
+    { value: 'auto', name: 'Auto', description: 'Picks for you' },
+    { value: 'sonnet', name: 'Sonnet', group: 'Claude' },
+    { value: 'opus', name: '<b>Opus</b>', group: 'Claude' },
+  ] }];
+  model.changed();
+  await tick();
+  assert.equal(picker.hidden, false);
+  assert.equal(picker.disabled, false);
+  assert.equal(picker.value, 'opus');
+  assert.equal(picker.querySelector('optgroup').label, 'Claude');
+  assert.equal(picker.querySelectorAll('option').length, 3);
+  assert.equal(picker.querySelector('b'), null);
+  picker.value = 'auto';
+  picker.dispatchEvent(new dom.window.Event('change'));
+  await tick();
+  assert.deepEqual(chosen, [['model', 'auto']]);
+  // The agent did not report a new value, so the picker shows what it still uses.
+  assert.equal(picker.value, 'opus');
+  model.state = 'working';
+  model.changed();
+  await tick();
+  assert.equal(picker.disabled, true);
+});

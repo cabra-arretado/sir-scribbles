@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { AcpSession, FrameReader } from '../src/acp.js';
+import { AcpSession, FrameReader, sanitizeConfigOptions } from '../src/acp.js';
 import { LIMITS } from '../src/limits.js';
 import { validateExecutable, AGENT_ARGS } from '../src/process.js';
 
@@ -298,4 +298,67 @@ test('unsupported permission cancels with no available card', async t => {
   assert.deepEqual(await unsupported, ['INVALID_ACTION_DETAILS']);
   assert.deepEqual(sent[0].result, { outcome: { outcome: 'cancelled' } });
   assert.equal(session.permissions.size, 0);
+});
+
+test('keeps only valid select config options and flattens groups', () => {
+  const options = sanitizeConfigOptions([
+    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'b', options: [
+      { value: 'a', name: 'A', description: 'first' },
+      { group: 'g', name: 'Group', options: [{ value: 'b', name: 'B' }, { value: 7, name: 'bad' }] },
+    ] },
+    { id: 'model', name: 'Duplicate', type: 'select', currentValue: 'a', options: [{ value: 'a', name: 'A' }] },
+    { id: 'thinking', name: 'Thinking', type: 'boolean', currentValue: true },
+    { id: 'stale', name: 'Stale', type: 'select', currentValue: 'gone', options: [{ value: 'a', name: 'A' }] },
+    { id: '__proto__', name: 'Odd', type: 'select', currentValue: 'x', options: [{ value: 'x', name: 'X', extra: '<b>' }] },
+  ]);
+  assert.deepEqual(options, [
+    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'b', options: [
+      { value: 'a', name: 'A', description: 'first' }, { value: 'b', name: 'B', group: 'Group' },
+    ] },
+    { id: '__proto__', name: 'Odd', type: 'select', currentValue: 'x', options: [{ value: 'x', name: 'X' }] },
+  ]);
+  assert.deepEqual(sanitizeConfigOptions('nope'), []);
+  const many = Array.from({ length: 300 }, (_, i) => ({ value: `m${i}`, name: `M${i}` }));
+  const capped = sanitizeConfigOptions([{ id: 'model', name: 'Model', type: 'select', currentValue: 'm0', options: many }]);
+  assert.equal(capped[0].options.length, LIMITS.configValues);
+});
+
+test('reads, changes and follows agent updates to config options', async t => {
+  const session = create(t, 'config');
+  const writes = [];
+  const write = session.write.bind(session);
+  session.write = frame => { writes.push(frame); write(frame); };
+  const started = await session.start('/fixture');
+  const model = options => options.find(option => option.category === 'model');
+  assert.equal(model(started.configOptions).currentValue, 'auto');
+  await assert.rejects(session.setConfigOption('model', 'not-offered'), { code: 'CONFIG_VALUE_UNKNOWN' });
+  const changed = await session.setConfigOption('model', 'sonnet');
+  assert.deepEqual(writes.at(-1).params, { sessionId: 'fixture-session', configId: 'model', value: 'sonnet' });
+  assert.equal(model(changed).currentValue, 'sonnet');
+  const pushed = [];
+  const updates = [];
+  session.on('config-options', options => pushed.push(model(options).currentValue));
+  session.on('update', update => updates.push(update.sessionUpdate));
+  await session.prompt('hello');
+  assert.deepEqual(pushed, ['opus']);
+  assert.ok(!updates.includes('config_option_update'));
+  assert.equal(session.state, 'ready');
+});
+
+test('a rejected config change keeps the session and the previous value', async t => {
+  const session = create(t, 'config-reject');
+  await session.start('/fixture');
+  await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_REJECTED' });
+  assert.equal(session.state, 'ready');
+  assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'auto');
+  assert.equal((await session.prompt('still works')).stopReason, 'end_turn');
+});
+
+test('config changes are refused before start and during a turn', async t => {
+  const session = create(t, 'config');
+  await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_NOT_AVAILABLE' });
+  await session.start('/fixture');
+  const turn = session.prompt('hello');
+  await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_NOT_AVAILABLE' });
+  await turn;
 });
