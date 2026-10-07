@@ -297,6 +297,7 @@ var LIMITS = Object.freeze({
   historyPages: 5,
   startupMs: 15e3,
   loadMs: 6e4,
+  requestMs: 15e3,
   cancellationMs: 5e3,
   shutdownMs: 2e3
 });
@@ -317,6 +318,7 @@ function mergeDefined(target, source) {
 
 // src/permissions.js
 var knownKinds = /* @__PURE__ */ new Set(["allow_once", "reject_once", "allow_always", "reject_always"]);
+var PATTERN = /[*?[\]{}\\]/;
 var consentStrings = ["capability", "resource", "triggeringResource", "workspaceRoot"];
 function unrecognizedMetadata(meta) {
   if (meta === void 0) return [];
@@ -359,7 +361,7 @@ function inspectPermission(params, workspaceRoot = null) {
   const once = params.options.filter((option) => ["allow_once", "reject_once"].includes(option.kind));
   if (!once.length) return { supported: false, reason: "NO_ONE_TIME_OPTIONS" };
   const consent = params._meta?.kiro?.consent;
-  const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent === true && typeof consent.capability === "string" && consent.capability.length > 0 && typeof consent.resource === "string" && consent.resource.length > 0 && typeof workspaceRoot === "string" && consent.workspaceRoot === workspaceRoot;
+  const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent === true && typeof consent.capability === "string" && consent.capability.length > 0 && typeof consent.resource === "string" && consent.resource.length > 0 && !PATTERN.test(consent.resource) && typeof workspaceRoot === "string" && consent.workspaceRoot === workspaceRoot;
   if (!persistable) return { supported: true, options: once, unrecognized, rule: null };
   const options = params.options.filter((option) => knownKinds.has(option.kind));
   return { supported: true, options, unrecognized, rule: { capability: consent.capability, resource: consent.resource, workspaceRoot } };
@@ -526,6 +528,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.configOptions = [];
     this.startupUpdates = [];
     this.pending = /* @__PURE__ */ new Map();
+    this.expired = /* @__PURE__ */ new Map();
     this.permissions = /* @__PURE__ */ new Map();
     this.toolCalls = /* @__PURE__ */ new Map();
     this.seenPermissionIds = /* @__PURE__ */ new Set();
@@ -587,13 +590,27 @@ var AcpSession = class extends import_node_events.EventEmitter {
     }
     this.child.stdin.write(encoded);
   }
-  request(method, params) {
+  // With a deadline, a silent agent cannot hold the caller forever. A reply
+  // that arrives after it is ignored, or handed to `late` when it succeeded.
+  request(method, params, { timeoutMs = 0, late = null } = {}) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const entry = { resolve, reject, timer: null };
+      if (timeoutMs) entry.timer = setTimeout(() => {
+        if (this.pending.get(id) !== entry) return;
+        this.pending.delete(id);
+        if (this.expired.size >= this.limits.permissions) {
+          this.fail("REQUEST_TIMEOUT");
+          return;
+        }
+        this.expired.set(id, late);
+        reject(new OperationalError("REQUEST_TIMEOUT"));
+      }, timeoutMs);
+      this.pending.set(id, entry);
       try {
         this.write({ jsonrpc: "2.0", id, method, params });
       } catch (error) {
+        clearTimeout(entry.timer);
         this.pending.delete(id);
         reject(error);
         this.fail(error.code || "WRITE_FAILED");
@@ -628,7 +645,14 @@ var AcpSession = class extends import_node_events.EventEmitter {
       throw new OperationalError("INVALID_RESPONSE");
     }
     const pending = this.pending.get(frame.id);
-    if (!pending) throw new OperationalError("UNMATCHED_RESPONSE");
+    if (!pending) {
+      if (!this.expired.has(frame.id)) throw new OperationalError("UNMATCHED_RESPONSE");
+      const late = this.expired.get(frame.id);
+      this.expired.delete(frame.id);
+      if (late && Object.hasOwn(frame, "result")) late(frame.result);
+      return;
+    }
+    clearTimeout(pending.timer);
     this.pending.delete(frame.id);
     if (Object.hasOwn(frame, "error")) pending.reject(new OperationalError("AGENT_REQUEST_FAILED"));
     else pending.resolve(frame.result);
@@ -745,9 +769,10 @@ var AcpSession = class extends import_node_events.EventEmitter {
     for (let page = 0; page < this.limits.historyPages && entries.length < this.limits.historyEntries; page++) {
       let result;
       try {
-        result = await this.request("session/list", cursor ? { cwd, cursor } : { cwd });
+        result = await this.request("session/list", cursor ? { cwd, cursor } : { cwd }, { timeoutMs: this.limits.requestMs });
       } catch (error) {
-        throw new OperationalError(this.transportClosed ? error.code : "HISTORY_UNAVAILABLE");
+        if (this.transportClosed) throw error;
+        throw new OperationalError(error.code === "REQUEST_TIMEOUT" ? "HISTORY_TIMEOUT" : "HISTORY_UNAVAILABLE");
       }
       if (!isRecord(result) || !Array.isArray(result.sessions)) throw new OperationalError("HISTORY_UNAVAILABLE");
       for (const item of result.sessions) {
@@ -837,10 +862,14 @@ var AcpSession = class extends import_node_events.EventEmitter {
     const option = this.configOptions.find((entry) => entry.id === configId);
     if (!option?.options.some((entry) => entry.value === value)) throw new OperationalError("CONFIG_VALUE_UNKNOWN");
     let result;
+    const late = (result2) => {
+      if (!this.transportClosed && isRecord(result2) && Array.isArray(result2.configOptions)) this.setConfigOptions(result2.configOptions);
+    };
     try {
-      result = await this.request("session/set_config_option", { sessionId: this.sessionId, configId, value });
+      result = await this.request("session/set_config_option", { sessionId: this.sessionId, configId, value }, { timeoutMs: this.limits.requestMs, late });
     } catch (error) {
-      throw new OperationalError(this.transportClosed ? error.code : "CONFIG_REJECTED");
+      if (this.transportClosed) throw error;
+      throw new OperationalError(error.code === "REQUEST_TIMEOUT" ? "CONFIG_TIMEOUT" : "CONFIG_REJECTED");
     }
     if (this.transportClosed) throw new OperationalError("TRANSPORT_CLOSED");
     if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError("CONFIG_REJECTED");
@@ -876,8 +905,12 @@ var AcpSession = class extends import_node_events.EventEmitter {
     clearTimeout(this.startupTimer);
     clearTimeout(this.stopTimer);
     this.startupTimer = this.stopTimer = null;
-    for (const pending of this.pending.values()) pending.reject(new OperationalError(code2));
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new OperationalError(code2));
+    }
     this.pending.clear();
+    this.expired.clear();
     this.startupUpdates = [];
     this.setState(state);
     this.emit("failure", code2);
@@ -967,6 +1000,8 @@ var ERROR_TEXT = {
   PROCESS_FAILED: "The agent could not start. Check the executable, its login and installation.",
   CONFIG_REJECTED: "The agent did not change the model. It keeps the previous one.",
   CONFIG_VALUE_UNKNOWN: "The agent no longer offers that model. Choose another one.",
+  CONFIG_TIMEOUT: "The agent did not confirm the model change within 15 seconds. It may still apply it; the picker shows the model it last reported.",
+  HISTORY_TIMEOUT: "The agent did not list past chats within 15 seconds. Try again, or start a new chat.",
   HISTORY_NOT_SUPPORTED: "This agent cannot list past chats. Start a new chat instead.",
   HISTORY_UNAVAILABLE: "The agent could not list past chats. Try again, or start a new chat.",
   LOAD_NOT_SUPPORTED: "This agent cannot reopen past chats. Start a new chat instead."
@@ -1135,10 +1170,11 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.error = "";
     this.changed();
     let history;
-    try {
+    if (!session.canLoad()) history = { error: errorText("LOAD_NOT_SUPPORTED") };
+    else try {
       history = { entries: await session.listSessions(this.cwd) };
     } catch (error) {
-      history = { error: errorText(error.code) };
+      history = { error: errorText(error.code), retry: error.code !== "HISTORY_NOT_SUPPORTED" };
     }
     if (generation !== this.generation || this.disposed || this.state !== "connected") return;
     this.history = history;
@@ -1162,7 +1198,8 @@ var ChatController = class extends import_node_events2.EventEmitter {
       }
     } catch (error) {
       if (live()) {
-        this.state = "failed";
+        if (!session.transportClosed && session.state === "connected") this.state = "connected";
+        else this.state = "failed";
         this.setError(error.code || "START_FAILED");
       }
     } finally {
@@ -6893,8 +6930,12 @@ var ChatPanel = class {
     if (!history) return;
     this.historyArea.append(this.el("h4", "", "Past chats in this vault"));
     if (history.pending) this.historyArea.append(this.el("p", "sir-scribbles-caption", "Asking the agent for past chats\u2026"));
-    else if (history.error) this.historyArea.append(this.el("p", "sir-scribbles-caption", history.error));
-    else if (!history.entries.length) this.historyArea.append(this.el("p", "sir-scribbles-caption", "No past chats for this vault yet."));
+    else if (history.error) {
+      this.historyArea.append(this.el("p", "sir-scribbles-caption", history.error));
+      if (history.retry) this.historyArea.append(this.button("Try again", () => {
+        void model.browse();
+      }, "sir-scribbles-secondary"));
+    } else if (!history.entries.length) this.historyArea.append(this.el("p", "sir-scribbles-caption", "No past chats for this vault yet."));
     else {
       const list2 = this.el("ul", "sir-scribbles-history-list");
       for (const entry of history.entries) {
@@ -7034,7 +7075,7 @@ var ChatPanel = class {
     if (!message.text.startsWith(row.target ?? "")) row.shown = 0;
     row.target = message.text;
     row.message = message;
-    if (!this.animate || !this.initialized || this.model.loading) {
+    if (!this.animate || !this.initialized || this.model.loading || message.timestamp === null) {
       row.shown = message.text.length;
       this.paintReply(row);
       return;
@@ -7160,10 +7201,10 @@ var ChatPanel = class {
     details.append(this.el("summary", "", "Action details"), this.el("pre", "sir-scribbles-permission-input", JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
     this.permissionArea.append(details);
     if (card.rule) {
-      const rule = this.el("p", "sir-scribbles-caption sir-scribbles-rule", "Always choices are saved by the agent as a rule for this vault only, covering exactly ");
+      const rule = this.el("p", "sir-scribbles-caption sir-scribbles-rule", "Always choices ask the agent to save a rule for this vault only: ");
       rule.append(
         this.el("code", "", `${card.rule.capability} \xB7 ${card.rule.resource}`),
-        ". It stops asking for that from now on, in every chat. The agent keeps its rules outside the vault, in its own settings."
+        ". If that is a folder, the rule also covers everything inside it. The agent then stops asking for matching actions in every chat, and keeps the rule outside the vault, in its own settings."
       );
       this.permissionArea.append(rule);
     }
@@ -7327,16 +7368,21 @@ var TabbedPanel = class {
     const unsaved = chat.messages.length || chat.draft || chat.selection || chat.file || BUSY.includes(chat.state);
     if (unsaved && !await this.actions.confirmClose(chat)) return;
     if (!await this.tabs.close(chat) && !this.disposed && this.tabs.chats.includes(chat)) {
-      chat.setError("CLEANUP_UNCERTAIN");
+      this.discard(chat);
+      this.render();
     }
   }
+  discard(chat) {
+    const entry = this.entries.get(chat);
+    if (!entry) return;
+    entry.panel.dispose();
+    entry.pane.remove();
+    entry.tab.remove();
+    this.entries.delete(chat);
+  }
   render() {
-    for (const [chat, entry] of this.entries) {
-      if (this.tabs.chats.includes(chat)) continue;
-      entry.panel.dispose();
-      entry.pane.remove();
-      entry.tab.remove();
-      this.entries.delete(chat);
+    for (const chat of [...this.entries.keys()]) {
+      if (!this.tabs.chats.includes(chat)) this.discard(chat);
     }
     for (const chat of this.tabs.chats) {
       let entry = this.entries.get(chat);
