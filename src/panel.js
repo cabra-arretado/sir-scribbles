@@ -265,7 +265,10 @@ export class ChatPanel {
     if (!history) return;
     this.historyArea.append(this.el('h4', '', 'Past chats in this vault'));
     if (history.pending) this.historyArea.append(this.el('p', 'sir-scribbles-caption', 'Asking the agent for past chats…'));
-    else if (history.error) this.historyArea.append(this.el('p', 'sir-scribbles-caption', history.error));
+    else if (history.error) {
+      this.historyArea.append(this.el('p', 'sir-scribbles-caption', history.error));
+      if (history.retry) this.historyArea.append(this.button('Try again', () => { void model.browse(); }, 'sir-scribbles-secondary'));
+    }
     else if (!history.entries.length) this.historyArea.append(this.el('p', 'sir-scribbles-caption', 'No past chats for this vault yet.'));
     else {
       const list = this.el('ul', 'sir-scribbles-history-list');
@@ -392,7 +395,9 @@ export class ChatPanel {
     row.message = message;
     // Rows that exist when the panel opens, or arrive while a past chat is
     // replayed, are history, not a stream.
-    if (!this.animate || !this.initialized || this.model.loading) { row.shown = message.text.length; this.paintReply(row); return; }
+    // Replayed messages carry no local time; that marks them even when the
+    // replay finished before this render.
+    if (!this.animate || !this.initialized || this.model.loading || message.timestamp === null) { row.shown = message.text.length; this.paintReply(row); return; }
     row.shown ??= 0;
     this.streaming.add(row);
     this.requestFrame();
@@ -503,9 +508,9 @@ export class ChatPanel {
     details.append(this.el('summary', '', 'Action details'), this.el('pre', 'sir-scribbles-permission-input', JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
     this.permissionArea.append(details);
     if (card.rule) {
-      const rule = this.el('p', 'sir-scribbles-caption sir-scribbles-rule', 'Always choices are saved by the agent as a rule for this vault only, covering exactly ');
+      const rule = this.el('p', 'sir-scribbles-caption sir-scribbles-rule', 'Always choices ask the agent to save a rule for this vault only: ');
       rule.append(this.el('code', '', `${card.rule.capability} · ${card.rule.resource}`),
-        '. It stops asking for that from now on, in every chat. The agent keeps its rules outside the vault, in its own settings.');
+        '. If that is a folder, the rule also covers everything inside it. The agent then stops asking for matching actions in every chat, and keeps the rule outside the vault, in its own settings.');
       this.permissionArea.append(rule);
     }
     const decisions = this.el('div', 'sir-scribbles-decisions');

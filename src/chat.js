@@ -24,6 +24,8 @@ export const ERROR_TEXT = {
   PROCESS_FAILED: 'The agent could not start. Check the executable, its login and installation.',
   CONFIG_REJECTED: 'The agent did not change the model. It keeps the previous one.',
   CONFIG_VALUE_UNKNOWN: 'The agent no longer offers that model. Choose another one.',
+  CONFIG_TIMEOUT: 'The agent did not confirm the model change within 15 seconds. It may still apply it; the picker shows the model it last reported.',
+  HISTORY_TIMEOUT: 'The agent did not list past chats within 15 seconds. Try again, or start a new chat.',
   HISTORY_NOT_SUPPORTED: 'This agent cannot list past chats. Start a new chat instead.',
   HISTORY_UNAVAILABLE: 'The agent could not list past chats. Try again, or start a new chat.',
   LOAD_NOT_SUPPORTED: 'This agent cannot reopen past chats. Start a new chat instead.',
@@ -158,8 +160,10 @@ export class ChatController extends EventEmitter {
     this.error = '';
     this.changed();
     let history;
-    try { history = { entries: await session.listSessions(this.cwd) }; }
-    catch (error) { history = { error: errorText(error.code) }; }
+    // Listing chats that cannot be reopened would only lead to a dead end.
+    if (!session.canLoad()) history = { error: errorText('LOAD_NOT_SUPPORTED') };
+    else try { history = { entries: await session.listSessions(this.cwd) }; }
+    catch (error) { history = { error: errorText(error.code), retry: error.code !== 'HISTORY_NOT_SUPPORTED' }; }
     if (generation !== this.generation || this.disposed || this.state !== 'connected') return;
     this.history = history;
     this.changed();
@@ -179,7 +183,13 @@ export class ChatController extends EventEmitter {
       const opened = await session.open(this.cwd, sessionId);
       if (live()) { this.history = null; this.configOptions = opened.configOptions ?? []; }
     } catch (error) {
-      if (live()) { this.state = 'failed'; this.setError(error.code || 'START_FAILED'); }
+      // A refusal before any request leaves the agent connected: keep the
+      // picker and its new-chat fallback. Anything else ended the agent.
+      if (live()) {
+        if (!session.transportClosed && session.state === 'connected') this.state = 'connected';
+        else this.state = 'failed';
+        this.setError(error.code || 'START_FAILED');
+      }
     } finally {
       if (live()) { this.loading = false; this.changed(); }
     }

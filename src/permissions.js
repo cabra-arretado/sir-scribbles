@@ -1,6 +1,8 @@
 import { isRecord } from './limits.js';
 
 const knownKinds = new Set(['allow_once', 'reject_once', 'allow_always', 'reject_always']);
+// Wildcards, globs, brace expansion and possible escapes in Kiro rule patterns.
+const PATTERN = /[*?[\]{}\\]/;
 const consentStrings = ['capability', 'resource', 'triggeringResource', 'workspaceRoot'];
 
 // Kiro documents consent metadata as open-ended and asks clients to preserve
@@ -34,7 +36,9 @@ function unrecognizedMetadata(meta) {
 //
 // "Always" choices are offered only when the agent marks the consent as
 // persistable for this exact workspace and names what it covers. The client
-// then answers with a workspace-scoped rule for exactly that resource.
+// then answers with a workspace-scoped rule for that resource. Kiro reads
+// rule resources as patterns, so a resource containing pattern syntax would
+// save a wider rule than the one shown; those get one-time choices only.
 export function inspectPermission(params, workspaceRoot = null) {
   if (!isRecord(params) || typeof params.sessionId !== 'string' || !isRecord(params.toolCall)) {
     return { supported: false, reason: 'INVALID_PERMISSION' };
@@ -63,7 +67,7 @@ export function inspectPermission(params, workspaceRoot = null) {
   const consent = params._meta?.kiro?.consent;
   const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent === true &&
     typeof consent.capability === 'string' && consent.capability.length > 0 &&
-    typeof consent.resource === 'string' && consent.resource.length > 0 &&
+    typeof consent.resource === 'string' && consent.resource.length > 0 && !PATTERN.test(consent.resource) &&
     typeof workspaceRoot === 'string' && consent.workspaceRoot === workspaceRoot;
   if (!persistable) return { supported: true, options: once, unrecognized, rule: null };
   // Keep the agent's order so choices appear as offered.

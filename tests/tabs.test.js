@@ -84,3 +84,27 @@ test('tab strip shows one panel per chat and asks before closing a chat with con
   assert.equal(root.querySelectorAll('[role="tab"]').length, 1);
   assert.equal(root.querySelectorAll('[role="tabpanel"]').length, 1);
 });
+
+test('closing a tab with uncertain cleanup shows Force stop in a live panel', async t => {
+  const dom = new JSDOM('<main></main>');
+  const tabs = new ChatTabs(() => new ChatController('/fixture-vault'), 2);
+  const chat = tabs.add();
+  chat.state = 'ready';
+  chat.dispose = async () => { chat.disposed = true; chat.removeAllListeners(); return false; };
+  const root = dom.window.document.querySelector('main');
+  const view = new TabbedPanel(root, tabs, {
+    getPath: () => '/fixture/kiro', savePath: async () => {}, attachSelection: async () => {}, attachFile: async () => {},
+    copyText: async () => {}, confirmClose: async () => true,
+  });
+  t.after(() => { view.dispose(); dom.window.close(); });
+  root.querySelector('[aria-label="Close chat"]').click();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const force = [...root.querySelectorAll('button')].find(button => button.textContent === 'Force stop agent');
+  assert.equal(force.hidden, false);
+  assert.match(root.querySelector('.sir-scribbles-error').textContent, /cleanup could not be confirmed/);
+  assert.equal(root.querySelector('.sir-scribbles-status').textContent, 'Failed');
+  chat.error = 'later update';
+  chat.changed();
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.match(root.querySelector('.sir-scribbles-error').textContent, /later update/);
+});

@@ -8,6 +8,7 @@ import { FrameReader } from '../src/acp.js';
 
 class Session extends EventEmitter {
   constructor() { super(); this.permissions = new Map(); this.sent = []; this.retainedBytes = 0; }
+  canLoad() { return this.loadable ?? true; }
   async connect() { this.emit('state', 'connected'); return { identity: { name: 'fixture', version: '3' } }; }
   async open(cwd, sessionId) { this.opened = sessionId; this.emit('state', 'ready'); return { configOptions: this.configOptions ?? [] }; }
   prompt(text) {
@@ -403,4 +404,19 @@ test('a listing failure is shown in the picker; typing a prompt there starts a n
   await sending;
   session.emit('update', { sessionUpdate: 'session_info_update', title: 'Agent title' });
   assert.equal(controller.title, 'Agent title');
+});
+
+test('an agent that lists but cannot reopen chats keeps the connected picker and its new-chat fallback', async () => {
+  const { controller, session } = create();
+  session.loadable = false;
+  session.state = 'connected';
+  session.listSessions = async () => assert.fail('must not list chats that cannot be reopened');
+  await controller.browse('/fixture');
+  assert.equal(controller.state, 'connected');
+  assert.match(controller.history.error, /cannot reopen past chats/);
+  assert.ok(!controller.history.retry);
+  session.open = async () => { throw new OperationalError('LOAD_NOT_SUPPORTED'); };
+  await controller.open('old');
+  assert.equal(controller.state, 'connected', 'a local refusal does not fail a healthy agent');
+  assert.match(controller.error, /cannot reopen/);
 });

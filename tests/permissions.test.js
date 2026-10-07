@@ -81,3 +81,12 @@ test('known consent is preserved; unknown metadata is listed, never cancelled', 
   assert.deepEqual(inspected.options.map(option => option.kind), ['allow_once', 'reject_once']);
   assert.deepEqual(inspected.unrecognized.sort(), ['_meta.kiro.consent.persistableConsent', '_meta.kiro.consent.scope', '_meta.kiro.mcpTool', '_meta.trustOptions']);
 });
+
+test('resources with pattern syntax get one-time choices only, since Kiro would widen them', () => {
+  for (const resource of ['ls *.md', '/vault/{a,b}.md', '/vault/[ab].md', '/vault/a?.md', 'C:\\vault']) {
+    const params = { ...request(), _meta: { kiro: { consent: { capability: 'shell', resource, workspaceRoot: '/fixture', persistableConsent: true } } } };
+    const inspected = inspectPermission(params, '/fixture');
+    assert.equal(inspected.rule, null, resource);
+    assert.deepEqual(inspected.options.map(option => option.kind), ['allow_once', 'reject_once']);
+  }
+});

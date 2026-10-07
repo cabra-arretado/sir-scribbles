@@ -49,6 +49,7 @@ input.on('line', line => {
     if (grandchild) update({ sessionUpdate: 'fixture-child', pid: grandchild.pid });
   } else if (frame.method === 'session/list') {
     if (mode === 'history-refuse') { output({ id: frame.id, error: { code: -32603, message: 'private detail' } }); return; }
+    if (mode === 'history-stall') { setTimeout(() => reply(frame.id, { sessions: [] }), 150); return; }
     const { cwd } = frame.params;
     // Two pages; entries from another directory or without an ID are dropped.
     if (!frame.params.cursor) reply(frame.id, { nextCursor: 'page-2', sessions: [
@@ -69,6 +70,7 @@ input.on('line', line => {
     reply(frame.id, { configOptions: models('opus') });
   } else if (frame.method === 'session/set_config_option') {
     if (mode === 'config-reject') output({ id: frame.id, error: { code: -32602, message: 'private detail' } });
+    else if (mode === 'config-stall') setTimeout(() => reply(frame.id, { configOptions: models(frame.params.value) }), 150);
     else reply(frame.id, { configOptions: models(frame.params.value) });
   } else if (frame.method === 'session/prompt') {
     if (mode === 'history') {
