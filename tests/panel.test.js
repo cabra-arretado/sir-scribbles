@@ -49,7 +49,7 @@ test('selection preview is complete and removable; replacement is explicit', asy
   await tick();
   assert.equal(attached(), 1);
   assert.ok(root.textContent.includes(model.selection.text));
-  assert.equal(panel.attach.textContent, '↻ Selection');
+  assert.equal(panel.attach.getAttribute('aria-pressed'), 'true');
   assert.equal(panel.selectionArea.querySelectorAll('script, img').length, 0);
   assert.equal(panel.selectionArea.querySelector('details').open, false);
   root.querySelector('[aria-label="Remove selection"]').click();
@@ -118,7 +118,7 @@ test('Enter sends only when ready; Shift+Enter and IME composition do not send',
   assert.equal(sent, 2);
 });
 
-test('file path appears above the composer with a checkmark and can be replaced or toggled off', async t => {
+test('file path appears above the composer and can be replaced or toggled off', async t => {
   const { panel, model, root } = create(t);
   panel.attachFile.click();
   await tick();
@@ -126,7 +126,7 @@ test('file path appears above the composer with a checkmark and can be replaced 
   assert.ok(root.textContent.includes('whole.md'));
   assert.equal(panel.attachFile.getAttribute('aria-pressed'), 'true');
   assert.equal(panel.selectionArea.querySelector('pre'), null);
-  assert.ok(panel.composer.compareDocumentPosition(panel.attachFile) & 2);
+  assert.ok(panel.composer.compareDocumentPosition(panel.selectionArea) & 2);
   panel.attachFile.click();
   await tick();
   assert.equal(model.file, null);
