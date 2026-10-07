@@ -1,4 +1,5 @@
 import { renderMarkdown } from './markdown.js';
+import { MASCOT_URL } from './mascot.js';
 
 const STATES = {
   'not-started': 'Not started', starting: 'Starting', ready: 'Ready', working: 'Working',
@@ -42,7 +43,10 @@ export class ChatPanel {
     this.container.classList.add('sir-scribbles');
     const header = this.el('header', 'sir-scribbles-header');
     const title = this.el('div', 'sir-scribbles-title-row');
-    title.append(this.el('span', 'sir-scribbles-mark', 'S'), this.el('h2', '', 'Sir Scribbles'));
+    const mascot = this.el('img', 'sir-scribbles-mark');
+    mascot.src = MASCOT_URL;
+    mascot.alt = '';
+    title.append(mascot, this.el('h2', '', 'Sir Scribbles'));
     this.status = this.el('span', 'sir-scribbles-status');
     this.status.setAttribute('role', 'status');
     title.append(this.status);
@@ -50,7 +54,7 @@ export class ChatPanel {
     this.directory.title = this.model.cwd;
     this.identity = this.el('p', 'sir-scribbles-identity');
     this.reset = this.button('New chat', async () => {
-      if ((this.model.messages.length || this.model.draft || this.model.selection) && !(await this.actions.confirmReset())) return;
+      if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file) && !(await this.actions.confirmReset())) return;
       await this.model.newChat();
     }, 'sir-scribbles-reset');
     header.append(title, this.directory, this.identity, this.reset);
@@ -63,7 +67,10 @@ export class ChatPanel {
     this.transcript = this.el('div', 'sir-scribbles-transcript');
     this.transcript.setAttribute('aria-label', 'Conversation');
     this.empty = this.el('section', 'sir-scribbles-empty');
-    this.empty.append(this.el('div', 'sir-scribbles-empty-mark', '↗'), this.el('h3', '', 'A little room to think.'),
+    const emptyMascot = this.el('img', 'sir-scribbles-empty-mark');
+    emptyMascot.src = MASCOT_URL;
+    emptyMascot.alt = '';
+    this.empty.append(emptyMascot, this.el('h3', '', 'A little room to think.'),
       this.el('p', '', 'Ask about your work. Bring a selection from a note when it helps.'));
     this.startArea = this.el('section', 'sir-scribbles-start-area');
     this.startArea.append(this.el('h4', '', 'Connect your local Kiro'));
@@ -106,7 +113,6 @@ export class ChatPanel {
 
     const footer = this.el('footer', 'sir-scribbles-footer');
     this.selectionArea = this.el('section', 'sir-scribbles-selection');
-    footer.append(this.selectionArea);
     const composer = this.el('div', 'sir-scribbles-composer');
     this.composer = this.el('textarea', 'sir-scribbles-prompt');
     this.composer.placeholder = 'What are you working on?';
@@ -120,16 +126,20 @@ export class ChatPanel {
       }
     });
     const toolbar = this.el('div', 'sir-scribbles-composer-toolbar');
-    this.attach = this.button('Attach selection', async () => {
+    const attachments = this.el('div', 'sir-scribbles-attachment-toolbar');
+    this.attach = this.button('+ Selection', async () => {
       await this.attachContext('attachSelection', 'SELECT_TEXT_FIRST');
     }, 'sir-scribbles-attach');
-    this.attachFile = this.button('Attach file', async () => {
+    this.attach.title = 'Attach selected text from the current note';
+    this.attachFile = this.button('+ File', async () => {
+      if (this.model.file) { this.model.removeFile(); return; }
       await this.attachContext('attachFile', 'OPEN_NOTE_FIRST');
     }, 'sir-scribbles-attach');
-    this.attachFile.title = 'Attach the full current Markdown note, including unsaved edits';
+    this.attachFile.title = 'Attach the current note path; Kiro can read the saved file';
     this.send = this.button('Send ↑', () => { void this.model.send(this.actions.getPath().trim()); }, 'mod-cta sir-scribbles-primary');
-    toolbar.append(this.attach, this.attachFile, this.send);
-    composer.append(this.composer, toolbar);
+    attachments.append(this.attach, this.attachFile);
+    toolbar.append(this.send);
+    composer.append(attachments, this.selectionArea, this.composer, toolbar);
     footer.append(composer);
     const controls = this.el('div', 'sir-scribbles-session-controls');
     this.stop = this.button('Stop', () => this.model.stop());
@@ -157,7 +167,7 @@ export class ChatPanel {
   renderControls() {
     const model = this.model;
     const canStart = model.state === 'not-started' && Boolean(this.actions.getPath().trim());
-    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection);
+    this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection || model.file);
     this.send.title = canStart ? 'Start Kiro and send this prompt' : 'Send prompt';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
@@ -166,8 +176,10 @@ export class ChatPanel {
     this.reset.disabled = model.resetting || model.disposed;
     this.attach.disabled = model.resetting || model.disposed;
     this.attachFile.disabled = model.resetting || model.disposed;
-    this.attachFile.textContent = model.selection ? 'Replace with file' : 'Attach file';
-    this.attach.textContent = model.selection ? 'Replace selection' : 'Attach selection';
+    this.attachFile.textContent = model.file ? '✓ File' : '+ File';
+    this.attachFile.setAttribute('aria-pressed', String(Boolean(model.file)));
+    this.attach.textContent = model.selection ? '↻ Selection' : '+ Selection';
+    this.attach.title = model.selection ? 'Update the attached selection from the current note' : 'Attach selected text from the current note';
     this.stop.hidden = !['starting', 'working', 'waiting-for-approval', 'stopping'].includes(model.state);
     this.stop.disabled = model.state === 'stopping' || model.resetting;
     this.force.hidden = !model.forceAvailable;
@@ -251,18 +263,39 @@ export class ChatPanel {
 
   renderSelection() {
     const selection = this.model.selection;
-    if (selection === this.lastSelection) return;
+    const file = this.model.file;
+    if (selection === this.lastSelection && file === this.lastFile) return;
+    this.lastFile = file;
     this.lastSelection = selection;
     this.selectionArea.replaceChildren();
-    this.selectionArea.hidden = !selection;
+    this.selectionArea.hidden = !selection && !file;
+    if (file) {
+      const fileCard = this.el('div', 'sir-scribbles-context-card sir-scribbles-file-card');
+      const fileRow = this.el('div', 'sir-scribbles-selection-header');
+      const path = this.el('span', 'sir-scribbles-context-path', file.path);
+      path.title = `${file.path} · path only`;
+      const remove = this.button('×', () => this.model.removeFile(), 'sir-scribbles-context-remove');
+      remove.setAttribute('aria-label', 'Remove file');
+      remove.title = 'Remove file';
+      fileRow.append(this.el('span', 'sir-scribbles-context-label', '✓ File'), path, remove);
+      fileCard.append(fileRow);
+      this.selectionArea.append(fileCard);
+    }
     if (!selection) return;
     const top = this.el('div', 'sir-scribbles-selection-header');
-    top.append(this.el('span', '', selection.kind === 'file' ? `${selection.path} · full note` : `${selection.path} · lines ${selection.from}–${selection.to}`),
-      this.button('Remove', () => this.model.removeSelection(), 'sir-scribbles-copy'));
+    const selectionCard = this.el('div', 'sir-scribbles-context-card sir-scribbles-text-card');
+    const path = this.el('span', 'sir-scribbles-context-path', `${selection.path}:${selection.from}–${selection.to}`);
+    path.title = `${selection.path} · lines ${selection.from}–${selection.to}`;
+    const remove = this.button('×', () => this.model.removeSelection(), 'sir-scribbles-context-remove');
+    remove.setAttribute('aria-label', 'Remove selection');
+    remove.title = 'Remove selection';
+    top.append(this.el('span', 'sir-scribbles-context-label', 'Selection'), path, remove);
+    selectionCard.append(top);
     const details = this.el('details');
-    details.open = true;
-    details.append(this.el('summary', '', selection.kind === 'file' ? 'Full note · snapshot' : 'Selected text · snapshot'), this.el('pre', 'sir-scribbles-selection-text', selection.text));
-    this.selectionArea.append(top, details);
+    details.open = false;
+    details.append(this.el('summary', '', 'Preview selected text'), this.el('pre', 'sir-scribbles-selection-text', selection.text));
+    selectionCard.append(details);
+    this.selectionArea.append(selectionCard);
   }
 
   renderPermission() {

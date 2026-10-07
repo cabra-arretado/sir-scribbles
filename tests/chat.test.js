@@ -127,7 +127,7 @@ test('removed selections never enter outgoing prompts', async () => {
   assert.equal(session.sent[0], 'only this');
 });
 
-test('whole-note snapshot captures unsaved content explicitly and enforces the prompt limit', () => {
+test('file attachment captures only the path without reading note contents', () => {
   let reads = 0;
   const view = { file: { path: 'notes/full.md', extension: 'md' }, editor: {
     getValue: () => { reads++; return 'full unsaved note'; },
@@ -138,23 +138,51 @@ test('whole-note snapshot captures unsaved content explicitly and enforces the p
   view.file.path = 'other.md';
   assert.ok(Object.isFrozen(snapshot));
   assert.equal(snapshot.path, 'notes/full.md');
-  assert.match(composePrompt('question', snapshot), /^question\n\nAttached note \(notes\/full.md\)/);
+  assert.equal(composePrompt('question', snapshot), 'question\n\nAttached note path: notes/full.md');
+  assert.equal(reads, 0);
+  assert.deepEqual(snapshot, { kind: 'file', path: 'notes/full.md' });
   view.editor.getValue = () => 'x'.repeat(LIMITS.prompt);
-  assert.throws(() => captureFile(view, () => true), { code: 'PROMPT_LIMIT' });
+  assert.equal(captureFile(view, () => true).path, 'other.md');
+  assert.equal(reads, 0);
 });
 
-test('file context sends the captured contents and is excluded after removal', async () => {
+test('file path and selected text coexist, send together and clear after sending', async () => {
   const { controller, session } = create();
   await controller.start('/fixture');
-  const snapshot = Object.freeze({ kind: 'file', path: 'full.md', text: 'captured full note' });
+  const file = Object.freeze({ kind: 'file', path: 'full.md' });
+  controller.attach(file);
+  controller.attach(selected);
+  assert.equal(controller.file, file);
+  assert.equal(controller.selection, selected);
+  controller.removeFile();
+  assert.equal(controller.selection, selected);
+  controller.attach(file);
+  controller.removeSelection();
+  assert.equal(controller.file, file);
+  controller.attach(selected);
+  controller.setDraft('question');
+  const sending = controller.send();
+  assert.equal(session.sent[0], composePrompt('question', selected, file));
+  assert.ok(session.sent[0].includes('Attached note path: full.md'));
+  assert.ok(session.sent[0].includes(selected.text));
+  assert.equal(controller.selection, null);
+  assert.equal(controller.file, null);
+  session.complete();
+  await sending;
+});
+
+test('file context sends only the path and is excluded after removal', async () => {
+  const { controller, session } = create();
+  await controller.start('/fixture');
+  const snapshot = Object.freeze({ kind: 'file', path: 'full.md' });
   controller.attach(snapshot);
   const sending = controller.send();
-  assert.equal(session.sent[0], composePrompt('', snapshot));
+  assert.equal(session.sent[0], 'Attached note path: full.md');
   assert.ok(Number.isFinite(controller.messages[0].timestamp));
   session.complete();
   await sending;
   controller.attach(snapshot);
-  controller.removeSelection();
+  controller.removeFile();
   controller.setDraft('just my question');
   const next = controller.send();
   assert.equal(session.sent[1], 'just my question');

@@ -13,7 +13,7 @@ function create(t) {
   const panel = new ChatPanel(root, model, {
     getPath: () => '/fixture/kiro', savePath: async () => {},
     attachSelection: async () => { attached++; return Object.freeze({ path: 'note.md', from: 1, to: 2, text: '<script>evil()</script>\n![remote](https://never.test/p.png)' }); },
-    attachFile: async () => Object.freeze({ kind: 'file', path: 'whole.md', text: '<script>full note</script>\nunsaved edits' }),
+    attachFile: async () => Object.freeze({ kind: 'file', path: 'whole.md' }),
     confirmReset: async () => true,
     copyText: async text => { copied = text; },
   });
@@ -39,7 +39,7 @@ test('HTML, remote-media syntax, terminal escapes and tool input render as inert
   model.update({ sessionUpdate: 'tool_call', toolCallId: 't', title: '<b>Run</b>', rawInput: { args: ['$(evil)', 'two words'] } });
   panel.render();
   assert.ok(root.textContent.includes(payload));
-  assert.equal(root.querySelectorAll('img, script, a, iframe, audio, video').length, 0);
+  assert.equal(panel.transcript.querySelectorAll('img:not(.sir-scribbles-empty-mark), script, a, iframe, audio, video').length, 0);
   assert.ok(root.textContent.includes('two words'));
 });
 
@@ -49,9 +49,10 @@ test('selection preview is complete and removable; replacement is explicit', asy
   await tick();
   assert.equal(attached(), 1);
   assert.ok(root.textContent.includes(model.selection.text));
-  assert.equal(panel.attach.textContent, 'Replace selection');
-  assert.equal(root.querySelectorAll('script, img').length, 0);
-  [...root.querySelectorAll('button')].find(button => button.textContent === 'Remove').click();
+  assert.equal(panel.attach.textContent, '↻ Selection');
+  assert.equal(panel.selectionArea.querySelectorAll('script, img').length, 0);
+  assert.equal(panel.selectionArea.querySelector('details').open, false);
+  root.querySelector('[aria-label="Remove selection"]').click();
   await tick();
   assert.equal(model.selection, null);
   assert.equal(panel.selectionArea.hidden, true);
@@ -99,19 +100,31 @@ test('Enter sends only when ready; Shift+Enter and IME composition do not send',
   assert.equal(sent, 2);
 });
 
-test('full-note context is previewed inertly, replaced, removed and never launches a session', async t => {
+test('file path appears above the composer with a checkmark and can be replaced or toggled off', async t => {
   const { panel, model, root } = create(t);
   panel.attachFile.click();
   await tick();
-  assert.equal(model.selection.kind, 'file');
-  assert.ok(root.textContent.includes('whole.md · full note'));
-  assert.ok(root.textContent.includes('unsaved edits'));
+  assert.equal(model.file.kind, 'file');
+  assert.ok(root.textContent.includes('whole.md'));
+  assert.equal(panel.attachFile.getAttribute('aria-pressed'), 'true');
+  assert.equal(panel.selectionArea.querySelector('pre'), null);
+  assert.ok(panel.composer.compareDocumentPosition(panel.attachFile) & 2);
+  panel.attachFile.click();
+  await tick();
+  assert.equal(model.file, null);
+  assert.equal(panel.attachFile.getAttribute('aria-pressed'), 'false');
+  panel.attachFile.click();
+  await tick();
   assert.equal(root.querySelectorAll('script').length, 0);
   assert.equal(model.session, null);
   panel.attach.click();
   await tick();
   assert.equal(model.selection.kind, undefined);
+  assert.equal(model.file.path, 'whole.md');
   model.removeSelection();
+  panel.render();
+  assert.equal(panel.selectionArea.hidden, false);
+  model.removeFile();
   panel.render();
   assert.equal(panel.selectionArea.hidden, true);
 });
@@ -170,7 +183,7 @@ test('Markdown cannot execute HTML, load images or activate application links', 
   const source = '<script>alert(1)</script>\n<img src="https://never.test/x">\n\n![image](https://never.test/image)\n\n[x](javascript:alert(1)) [local](file:///tmp/a) [action](obsidian://open?vault=private) [relative](secret.md)';
   model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: source } });
   panel.render();
-  assert.equal(root.querySelectorAll('script,img,iframe,object,embed,svg').length, 0);
+  assert.equal(panel.transcript.querySelectorAll('script,img:not(.sir-scribbles-empty-mark),iframe,object,embed,svg').length, 0);
   assert.ok(root.textContent.includes('<script>alert(1)</script>'));
   assert.ok(root.textContent.includes('![image](https://never.test/image)'));
   assert.equal(root.querySelectorAll('a[href]').length, 0);

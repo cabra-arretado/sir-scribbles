@@ -60,13 +60,14 @@ Keep `data.json` to preserve the saved executable path. Restart Obsidian and ena
    first prompt starts ACP and sends after initialization succeeds. You can also
    click **Start Kiro** first. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
-3. Type a prompt. Select text in a Markdown editor and click **Attach selection**
+3. Type a prompt. Select text in a Markdown editor and click **+ Selection**
    to capture only that text, with its relative note path and line range. Inspect,
    replace or remove the snapshot before sending. Changes to the note do not
    change the attachment. A selection-only prompt is supported.
-   Alternatively, click **Attach file** to capture the full current Markdown note,
-   including unsaved edits. One context snapshot is attached at a time; review,
-   replace or remove it before sending.
+   Alternatively, click **+ File** above the message field to attach only the
+   current note's vault-relative path. A checkmark shows it is attached. Kiro can
+   read the saved file using its own tools; unsaved edits are not sent. The file path and a selected-text snapshot can be attached together.
+   Remove each separately, or click the checked file button to clear the file path.
 4. Click **Send** or press Enter. Shift+Enter inserts a newline. Bot replies render
    Markdown; prompts, context previews, and tool activity stay
    plain text. Messages have timestamps and Copy controls that preserve the source.

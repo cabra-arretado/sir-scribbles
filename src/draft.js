@@ -28,15 +28,16 @@ export function captureFile(view, eligible) {
   if (typeof path !== 'string' || path.startsWith('/') || path.split('/').includes('..')) {
     throw new OperationalError('INVALID_SELECTION_SOURCE');
   }
-  const snapshot = Object.freeze({ kind: 'file', path, text: view.editor.getValue() });
+  const snapshot = Object.freeze({ kind: 'file', path });
   composePrompt('', snapshot);
   return snapshot;
 }
 
-export function composePrompt(text, selection) {
+export function composePrompt(text, selection, file = null) {
   const parts = [];
   if (text.trim()) parts.push(text);
-  if (selection?.kind === 'file') parts.push(`Attached note (${selection.path}):\n--- BEGIN NOTE ---\n${selection.text}\n--- END NOTE ---`);
+  if (file) parts.push(`Attached note path: ${file.path}`);
+  if (selection?.kind === 'file') parts.push(`Attached note path: ${selection.path}`);
   else if (selection) parts.push(`Selected note text (${selection.path}, lines ${selection.from}–${selection.to}):\n--- BEGIN SELECTED TEXT ---\n${selection.text}\n--- END SELECTED TEXT ---`);
   const prompt = parts.join('\n\n');
   if (!prompt) throw new OperationalError('EMPTY_PROMPT');

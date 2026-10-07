@@ -40,6 +40,7 @@ export class ChatController extends EventEmitter {
     this.tools = new Map();
     this.draft = '';
     this.selection = null;
+    this.file = null;
     this.identity = '';
     this.error = '';
     this.cleanup = '';
@@ -52,11 +53,15 @@ export class ChatController extends EventEmitter {
   changed() { this.emit('change'); }
   setDraft(text) { this.draft = text; } // Typing never launches or recreates the composer.
   attach(selection) {
-    composePrompt(this.draft, selection);
-    this.selection = selection;
+    const file = selection.kind === 'file' ? selection : this.file;
+    const textSelection = selection.kind === 'file' ? this.selection : selection;
+    composePrompt(this.draft, textSelection, file);
+    this.selection = textSelection;
+    this.file = file;
     this.error = '';
     this.changed();
   }
+  removeFile() { this.file = null; this.changed(); }
   removeSelection() { this.selection = null; this.changed(); }
   activePermission() { return this.session?.permissions.values().next().value ?? null; }
   setError(code) { this.error = errorText(code); this.changed(); }
@@ -153,17 +158,18 @@ export class ChatController extends EventEmitter {
     if (this.resetting || this.disposed || !['not-started', 'ready'].includes(this.state)) return;
     if (this.state === 'not-started' && !executable) return;
     let prompt;
-    try { prompt = composePrompt(this.draft, this.selection); }
+    try { prompt = composePrompt(this.draft, this.selection, this.file); }
     catch (error) { this.setError(error.code); return; }
     const originalDraft = this.draft;
     const originalSelection = this.selection;
-    const sourcePath = this.selection?.path ?? this.getSourcePath();
+    const originalFile = this.file;
+    const sourcePath = this.selection?.path ?? this.file?.path ?? this.getSourcePath();
     if (this.state === 'not-started') {
       const starting = this.start(executable);
       const startupGeneration = this.generation;
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== 'ready') return;
-      if (this.draft !== originalDraft || this.selection !== originalSelection) {
+      if (this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile) {
         this.error = 'The draft changed while Kiro was starting. Review it and send again.';
         this.changed();
         return;
@@ -178,6 +184,7 @@ export class ChatController extends EventEmitter {
     // until successful settlement and never overwrite a newer draft.
     this.draft = '';
     this.selection = null;
+    this.file = null;
     this.error = '';
     this.forceAvailable = false;
     const turn = session.prompt(prompt);
@@ -186,7 +193,7 @@ export class ChatController extends EventEmitter {
       await turn;
     } catch (error) {
       if (generation === this.generation && !this.disposed) {
-        if (!this.draft && !this.selection) { this.draft = originalDraft; this.selection = originalSelection; }
+        if (!this.draft && !this.selection && !this.file) { this.draft = originalDraft; this.selection = originalSelection; this.file = originalFile; }
         this.setError(error.code);
       }
     } finally {
@@ -245,6 +252,7 @@ export class ChatController extends EventEmitter {
     this.tools.clear();
     this.draft = '';
     this.selection = null;
+    this.file = null;
     this.identity = '';
     this.error = '';
     this.cleanup = '';
@@ -261,6 +269,7 @@ export class ChatController extends EventEmitter {
     ++this.generation;
     this.draft = '';
     this.selection = null;
+    this.file = null;
     this.messages = [];
     this.turnSourcePath = '';
     this.tools.clear();
