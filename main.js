@@ -981,6 +981,9 @@ ${selection.text}
   if (Buffer.byteLength(prompt, "utf8") > LIMITS.prompt) throw new OperationalError("PROMPT_LIMIT");
   return prompt;
 }
+function displayPrompt(prompt) {
+  return prompt.replace(/\n--- BEGIN SELECTED TEXT ([0-9a-f]{12}) ---\n([\s\S]*)\n--- END SELECTED TEXT \1 ---$/, "\n$2");
+}
 
 // src/chat.js
 var ERROR_TEXT = {
@@ -7035,7 +7038,7 @@ var ChatPanel = class {
         }
         meta.append(this.iconButton("copy", "Copy", async () => {
           try {
-            await this.actions.copyText(message.text);
+            await this.actions.copyText(message.role === "user" ? displayPrompt(message.text) : message.text);
           } catch {
             this.model.error = "Could not copy. Select the text and copy it manually.";
             this.model.changed();
@@ -7060,7 +7063,7 @@ var ChatPanel = class {
       if (row.summary) row.summary.textContent = `${typeof message.data.title === "string" ? message.data.title : "Tool"} \xB7 ${typeof message.data.status === "string" ? message.data.status : "pending"}`;
       if (message.role === "agent") this.updateReply(row, message);
       else if (message.text !== row.rendered) {
-        row.body.textContent = message.text;
+        row.body.textContent = message.role === "user" ? displayPrompt(message.text) : message.text;
         row.rendered = message.text;
       }
     }
