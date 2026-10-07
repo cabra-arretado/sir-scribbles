@@ -124,7 +124,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.cleanupPending = null;
     this.registerView(VIEW_TYPE, leaf => new ScribblesView(leaf, this));
     this.addRibbonIcon('messages-square', 'Open Sir Scribbles', () => { void this.openChat(); });
-    this.addCommand({ id: 'open-sir-scribbles', name: 'Open Sir Scribbles', callback: () => { void this.openChat(); } });
+    this.addCommand({ id: 'open-chat', name: 'Open chat', callback: () => { void this.openChat(); } });
     this.addSettingTab(new ScribblesSettings(this.app, this));
     this.registerEvent(this.app.workspace.on('quit', tasks => {
       // Obsidian waits for Tasks during a normal quit. Plugin onunload alone

@@ -1,13 +1,15 @@
 /* Built on Obsidian's own design tokens so the panel follows the active theme. */
 .sir-scribbles {
-  display: flex; flex-direction: column; height: 100%; padding: 0 !important;
+  display: flex; flex-direction: column; height: 100%; padding: 0;
   color: var(--text-normal); background: var(--background-primary); font-size: var(--font-ui-small);
 }
+/* Component rules set display; the hidden attribute must still win. */
 .sir-scribbles [hidden] { display: none !important; }
 .sir-scribbles-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Tabs: one chat per tab, each with its own agent. */
-.sir-scribbles-root { display: flex; flex-direction: column; height: 100%; padding: 0 !important; background: var(--background-primary); }
+.sir-scribbles-root { display: flex; flex-direction: column; height: 100%; padding: 0; background: var(--background-primary); }
+.view-content.sir-scribbles-root { padding: 0; }
 .sir-scribbles-root [hidden] { display: none !important; }
 .sir-scribbles-tabs { display: flex; align-items: center; gap: var(--size-2-1); padding: var(--size-4-1) var(--size-4-2) 0; border-bottom: 1px solid var(--background-modifier-border); flex-shrink: 0; overflow-x: auto; scrollbar-width: none; }
 .sir-scribbles-tab { display: flex; align-items: center; min-width: 0; max-width: 160px; flex: 0 1 auto; border-radius: var(--radius-s) var(--radius-s) 0 0; color: var(--text-muted); }
@@ -55,7 +57,7 @@
 .sir-scribbles-directory { font-family: var(--font-monospace); font-size: var(--font-ui-smaller); color: var(--text-faint); margin: var(--size-4-3) 0 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sir-scribbles-start-area { width: 100%; max-width: 320px; text-align: left; margin-top: var(--size-4-6); padding: var(--size-4-4); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l); }
 .sir-scribbles-start-area h4 { font-size: var(--font-ui-small); font-weight: var(--font-semibold); margin: 0 0 var(--size-4-2); }
-.sir-scribbles-path { width: 100%; font-family: var(--font-monospace); font-size: var(--font-ui-smaller) !important; }
+.sir-scribbles .sir-scribbles-path { width: 100%; font-family: var(--font-monospace); font-size: var(--font-ui-smaller); }
 .sir-scribbles-caption { color: var(--text-muted); font-size: var(--font-ui-smaller); line-height: var(--line-height-normal); margin: var(--size-4-2) 0; }
 .sir-scribbles-launch { display: flex; flex-direction: column; gap: var(--size-4-2); }
 .sir-scribbles-start-area .sir-scribbles-primary, .sir-scribbles-start-area .sir-scribbles-secondary { width: 100%; }
@@ -146,7 +148,7 @@
 }
 .sir-scribbles-composer:focus-within { border-color: var(--background-modifier-border-focus); box-shadow: 0 0 0 2px var(--background-modifier-border-hover); }
 .sir-scribbles .sir-scribbles-prompt {
-  display: block; box-sizing: border-box; width: 100%; min-height: 44px; max-height: 240px; resize: none;
+  display: block; box-sizing: border-box; width: 100%; height: var(--sir-scribbles-prompt-height, auto); min-height: 44px; max-height: 240px; resize: none;
   border: 0; box-shadow: none; background: transparent; padding: var(--size-4-2) var(--size-4-3);
   font-family: var(--font-interface); font-size: var(--font-ui-small); line-height: var(--line-height-normal);
 }

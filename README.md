@@ -26,40 +26,19 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
   keeps its own chat history; **Open a past chat** asks Kiro for it. The only
   saved setting is the executable path, stored on this device.
 
-## Build and install
+## Install
 
-Requires Node.js 22+ for development; runtime uses Node/Electron built-ins,
-Obsidian's supplied API, and the pinned
-markdown-it parser bundled into main.js. Build/test dependencies are pinned.
+Sir Scribbles requires Obsidian 1.5.0 or later on macOS and an already installed
+and signed-in Kiro CLI (see [below](#installauthenticate-kiro-separately)).
 
-```sh
-npm ci --ignore-scripts
-npm test
-npm run check
-npm run build
-```
+- **Community plugins:** in Obsidian, open **Settings → Community plugins → Browse**,
+  search for **Sir Scribbles**, install it and enable it.
+- **Manually:** download `main.js`, `manifest.json` and `styles.css` from the
+  [latest release](https://github.com/cabra-arretado/sir-scribbles/releases/latest)
+  into `YOUR_VAULT/.obsidian/plugins/sir-scribbles/`, then enable **Sir Scribbles**
+  under **Settings → Community plugins**.
 
-The build writes `main.js` to the repository root, beside `manifest.json` and
-`styles.css`. It also copies all three files into `dist/sir-scribbles/`.
-Copy these three files into:
-
-```text
-YOUR_VAULT/.obsidian/plugins/sir-scribbles/
-  manifest.json
-  main.js
-  styles.css
-```
-
-Enable **Sir Scribbles** under Obsidian's Community plugins. Open the sidebar through
-the ribbon button or the **Sir Scribbles: Open Sir Scribbles** command. The manifest declares
-Obsidian 1.5.0+ as the initial API baseline.
-macOS is the only supported launch platform for this preview.
-
-When replacing the earlier preview, disable it and rename its plugin folder from
-`obsidian-noter` (or `noter`) to `sir-scribbles`, then replace `main.js`, `manifest.json`, and `styles.css`.
-The executable path is now stored on this device per vault, not in the vault's
-`data.json`, so enter it once more after upgrading. Restart Obsidian and enable
-**Sir Scribbles**. Reopen the sidebar and update any shortcut for its renamed command.
+Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** command.
 
 ## Use the sidebar
 
@@ -147,3 +126,23 @@ command -v kiro-cli
 The [authentication guide](https://kiro.dev/docs/getting-started/authentication/)
 documents the terminal login flow. The plugin neither installs nor authenticates
 Kiro.
+
+## Development
+
+Requires Node.js 22+. Runtime uses Node/Electron built-ins, Obsidian's supplied
+API, and the pinned markdown-it parser bundled into `main.js`. Build and test
+dependencies are pinned.
+
+```sh
+npm ci --ignore-scripts
+npm test
+npm run check
+npm run build
+```
+
+The build writes `main.js` to the repository root, beside `manifest.json` and
+`styles.css`, and copies all three files into `dist/sir-scribbles/`. `main.js`
+is not committed; releases attach it. To release, bump the version in
+`manifest.json`, `package.json` and `versions.json`, then push a tag equal to
+that version (for example `0.0.2`, no `v`). The workflow builds a draft release
+to review and publish.
