@@ -28,6 +28,7 @@ const models = current => [
 ];
 let promptId;
 let pendingChoice = false;
+let stalled = false;
 let grandchild;
 if (mode === 'ignore-term' || mode === 'grandchild') process.on('SIGTERM', () => {});
 if (mode === 'grandchild') {
@@ -71,6 +72,7 @@ input.on('line', line => {
   } else if (frame.method === 'session/set_config_option') {
     if (mode === 'config-reject') output({ id: frame.id, error: { code: -32602, message: 'private detail' } });
     else if (mode === 'config-stall') setTimeout(() => reply(frame.id, { configOptions: models(frame.params.value) }), 150);
+    else if (mode === 'config-stall-first' && !stalled) { stalled = true; setTimeout(() => reply(frame.id, { configOptions: models(frame.params.value) }), 150); }
     else reply(frame.id, { configOptions: models(frame.params.value) });
   } else if (frame.method === 'session/prompt') {
     if (mode === 'history') {
