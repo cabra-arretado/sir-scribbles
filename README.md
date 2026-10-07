@@ -69,8 +69,9 @@ The executable path is now stored on this device per vault, not in the vault's
    if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
 2. Review the displayed vault directory. With a saved executable, sending your
-   first prompt starts ACP and sends after initialization succeeds. You can also
-   click **Start agent** first. Opening the sidebar or typing never starts a process.
+   first prompt starts ACP and sends after initialization succeeds, using the
+   agent's default model. To choose another model, click **Start agent** first and
+   pick it from the composer. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
    To continue an earlier conversation, click **Open a past chat**. This starts
    Kiro and lists the chats it has kept for this vault, newest first. Choose one

@@ -444,3 +444,8 @@ test('a replay that finishes before the scheduled render is shown at once, not a
   assert.equal(panel.streaming.size, 0);
   assert.equal(panel.transcript.querySelector('.sir-scribbles-agent .sir-scribbles-markdown').textContent.length, 1200);
 });
+
+test('the start area says Start agent is how to choose a non-default model', t => {
+  const { root } = create(t);
+  assert.ok(root.querySelector('.sir-scribbles-start-area').textContent.includes('Start the agent first to choose a model other than its default'));
+});
