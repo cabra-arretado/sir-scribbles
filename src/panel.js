@@ -2,6 +2,8 @@ import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
 
+const DECISIONS = { allow_once: 'Allow once', reject_once: 'Deny once', allow_always: 'Always allow', reject_always: 'Always deny' };
+
 const STATES = {
   'not-started': 'Not started', starting: 'Starting', connected: 'Choose a chat', ready: 'Ready', working: 'Working',
   'waiting-for-approval': 'Waiting for approval', stopping: 'Stopping', failed: 'Failed', terminated: 'Terminated',
@@ -500,9 +502,17 @@ export class ChatPanel {
     // whitespace expansion for deep agent-supplied structures.
     details.append(this.el('summary', '', 'Action details'), this.el('pre', 'sir-scribbles-permission-input', JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
     this.permissionArea.append(details);
+    if (card.rule) {
+      const rule = this.el('p', 'sir-scribbles-caption sir-scribbles-rule', 'Always choices are saved by the agent as a rule for this vault only, covering exactly ');
+      rule.append(this.el('code', '', `${card.rule.capability} · ${card.rule.resource}`),
+        '. It stops asking for that from now on, in every chat. The agent keeps its rules outside the vault, in its own settings.');
+      this.permissionArea.append(rule);
+    }
     const decisions = this.el('div', 'sir-scribbles-decisions');
     for (const option of card.options) {
-      const button = this.button(`${option.kind === 'allow_once' ? 'Allow once' : 'Deny once'} · ${option.name}`, () => {
+      // The agent's own name is kept unless it only repeats the label.
+      const label = DECISIONS[option.kind];
+      const button = this.button(option.name.trim().toLowerCase() === label.toLowerCase() ? label : `${label} · ${option.name}`, () => {
         for (const child of decisions.children) child.disabled = true;
         this.model.decide(card, option.optionId);
         this.renderPermission();

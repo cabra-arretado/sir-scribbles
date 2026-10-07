@@ -63,16 +63,49 @@ test('negotiates disabled execution capabilities and sends ordered plain text', 
     ['<script>alert(1)</script>\u001b[31m', ' second']);
 });
 
-test('offers one active permission; choices are single-use and never persistent', async t => {
+test('offers one active permission; choices are single-use and one-time replies carry no rule', async t => {
   const session = create(t, 'permission');
+  const replies = [];
+  const write = session.write.bind(session);
+  session.write = frame => { if (Object.hasOwn(frame, 'result')) replies.push(frame.result); write(frame); };
   await session.start('/fixture');
   const cardReceived = once(session, 'permission');
   const turn = session.prompt('do a thing');
   const [card] = await cardReceived;
-  assert.equal(session.decide(card.id, 'forever'), false);
+  assert.equal(session.decide(card.id, 'unknown'), false);
   assert.equal(session.decide(card.id, 'no'), true);
   assert.equal(session.decide(card.id, 'no'), false);
   assert.equal((await turn).stopReason, 'end_turn');
+  assert.deepEqual(replies, [{ outcome: { outcome: 'selected', optionId: 'no' } }]);
+});
+
+test('always allow answers with a rule for this workspace and exactly the requested resource', async t => {
+  const session = create(t, 'permission');
+  const replies = [];
+  const write = session.write.bind(session);
+  session.write = frame => { if (Object.hasOwn(frame, 'result')) replies.push(frame.result); write(frame); };
+  await session.start('/fixture');
+  const cardReceived = once(session, 'permission');
+  const turn = session.prompt('do a thing');
+  const [card] = await cardReceived;
+  assert.deepEqual(card.options.map(option => option.optionId), ['yes', 'forever', 'no']);
+  assert.deepEqual(card.rule, { capability: 'shell', resource: 'printf', workspaceRoot: '/fixture' });
+  assert.equal(session.decide(card.id, 'forever'), true);
+  await turn;
+  assert.deepEqual(replies, [{ outcome: { outcome: 'selected', optionId: 'forever' },
+    _meta: { kiro: { consent: { scope: 'workspace', resource: 'printf', workspaceRoot: '/fixture' } } } }]);
+});
+
+test('consent for another workspace offers only one-time choices', async t => {
+  const session = create(t, 'permission');
+  await session.start('/elsewhere');
+  const cardReceived = once(session, 'permission');
+  const turn = session.prompt('do a thing');
+  const [card] = await cardReceived;
+  assert.equal(card.rule, null);
+  assert.equal(session.decide(card.id, 'forever'), false);
+  assert.equal(session.decide(card.id, 'yes'), true);
+  await turn;
 });
 
 test('queued permission cannot be decided before active request', async t => {

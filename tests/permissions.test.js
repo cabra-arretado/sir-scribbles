@@ -15,8 +15,33 @@ const request = () => ({
 test('offers only actual one-time IDs and preserves full request', () => {
   const params = request();
   const original = structuredClone(params);
-  assert.deepEqual(inspectPermission(params).options.map(option => option.optionId), ['one', 'no']);
+  const inspected = inspectPermission(params, '/fixture');
+  assert.deepEqual(inspected.options.map(option => option.optionId), ['one', 'no']);
+  assert.equal(inspected.rule, null);
   assert.deepEqual(params, original);
+});
+
+test('always choices need persistable consent for this workspace and a named resource', () => {
+  const persistable = () => ({ ...request(), _meta: { kiro: { consent: { capability: 'shell', resource: 'npm test', workspaceRoot: '/fixture', persistableConsent: true } } } });
+  const inspected = inspectPermission(persistable(), '/fixture');
+  assert.deepEqual(inspected.options.map(option => option.optionId), ['one', 'all', 'no']);
+  assert.deepEqual(inspected.rule, { capability: 'shell', resource: 'npm test', workspaceRoot: '/fixture' });
+  const variants = [
+    params => { params._meta.kiro.consent.persistableConsent = false; },
+    params => { delete params._meta.kiro.consent.resource; },
+    params => { delete params._meta.kiro.consent.capability; },
+    params => { params._meta.kiro.consent.workspaceRoot = '/other'; },
+    params => { params._meta.kiro.consent.scope = 'user'; }, // Unrecognized metadata: never saved.
+    params => { params._meta.kiroExtra = true; },
+  ];
+  for (const change of variants) {
+    const params = persistable();
+    change(params);
+    const result = inspectPermission(params, '/fixture');
+    assert.equal(result.rule, null);
+    assert.deepEqual(result.options.map(option => option.optionId), ['one', 'no']);
+  }
+  assert.equal(inspectPermission(persistable()).rule, null, 'no workspace, no rule');
 });
 
 test('partial tool details are supported but a tool ID is required', () => {
