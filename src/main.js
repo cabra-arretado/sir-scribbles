@@ -98,7 +98,6 @@ class ScribblesSettings extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
   display() {
     this.containerEl.empty();
-    this.containerEl.createEl('h2', { text: 'Sir Scribbles' });
     this.containerEl.createEl('p', { text: 'macOS developer preview. Install and authenticate Kiro V3 in your terminal. Selecting a path does not run it.' });
     let path = this.plugin.executablePath;
     const status = this.containerEl.createEl('p', { attr: { role: 'status' } });

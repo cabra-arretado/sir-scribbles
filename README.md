@@ -7,13 +7,24 @@ arguments and permission handling implemented today. Other ACP providers are
 planned and are not yet selectable or validated.
 
 Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
-The product specification is in [product-specification.md](product-specification.md).
+This is a developer preview: compatibility with a real Kiro V3 installation has
+not yet been verified.
 
-**Current stage: installable developer preview.** The sidebar is built and wired
-to the headless ACP adapter. The user authorized UI implementation before the
-specification's real Kiro compatibility gate. That gate remains open: no installed,
-authenticated Kiro V3 was available here. Automated and browser checks use fixtures;
-this is not a public release or a claim of verified Kiro/Obsidian integration.
+## Disclosures
+
+- **Runs an external program.** The plugin starts the Kiro CLI executable you
+  choose, only when you click **Start Kiro** or send your first prompt. It never
+  installs, updates or downloads anything.
+- **Requires a Kiro account.** Kiro needs its own login; the plugin stores no
+  credentials and has no payment features.
+- **Network access through Kiro.** The plugin itself makes no network requests.
+  Kiro sends your prompts and attached note text to its AI provider.
+- **Files outside the vault.** Kiro starts in the vault folder but can read,
+  write or run anything its own permissions allow, including outside the vault.
+  Actions Kiro asks about appear in the sidebar for approval; actions already
+  allowed by Kiro's configuration may run without asking.
+- **No telemetry or ads.** Conversations are kept in memory only. The only saved
+  setting is the executable path, stored on this device.
 
 ## Build and install
 
@@ -95,21 +106,10 @@ seconds if needed. The conversation is discarded; reopening creates a fresh
 session. Crashes, force quits, and descendants that detach from the process group
 cannot be guaranteed to clean up.
 
-Only the executable path is saved in plugin settings. The plugin does not archive
+Only the executable path is saved, in this device's local storage. The plugin does not archive
 prompts, attachments, transcripts, session IDs or tool details. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain
 outside the plugin's control. The vault directory is context, not a sandbox.
-
-## Try the UI without Kiro or Obsidian
-
-```sh
-npm run preview
-```
-
-Open `http://127.0.0.1:8787`. This development-only fixture uses the actual sidebar
-component and provides Start screen, Conversation and Approval examples. It never
-launches Kiro and is excluded from the plugin bundle. The preview server is a
-developer tool; the plugin contains no networking or listening server.
 
 ## Install/authenticate Kiro separately
 
@@ -124,31 +124,3 @@ command -v kiro-cli
 The [authentication guide](https://kiro.dev/docs/getting-started/authentication/)
 documents the terminal login flow. The plugin neither installs nor authenticates
 Kiro. The downloaded release still needs V3 validation.
-
-## Real compatibility exercise
-
-Use a disposable workspace with no secrets. Kiro retains existing native
-permissions and may initialize configured hooks/MCP servers.
-
-```sh
-npm run spike -- --kiro /absolute/path/to/kiro-cli --cwd /absolute/test/workspace --check
-npm run spike -- --kiro /absolute/path/to/kiro-cli --cwd /absolute/test/workspace
-```
-
-The interactive spike accepts single-line prompts and `/choose OPTION_ID`,
-`/stop`, `/force` (after the delay), `/quit`. Output is JSON-escaped and intentionally
-displayed for inspection; do not redirect private content to a disk log.
-
-Follow [the compatibility procedure](docs/compatibility.md). Initialization and
-fixture tests alone do not certify the execution gate. Record the validated CLI
-release before any public release.
-
-## Source
-
-- `src/main.js`: Obsidian view, commands, settings and editor identity tracking.
-- `src/panel.js`: inert sidebar rendering and controls.
-- `src/chat.js`, `src/draft.js`: conversation state, draft/selection snapshots.
-- `src/acp.js`, `src/permissions.js`, `src/process.js`: bounded ACP and process lifecycle.
-- `tests/`: synthetic protocol, process, controller, DOM and Obsidian API-stub checks.
-- [Developer boundaries](docs/development.md), [compatibility](docs/compatibility.md)
-  and [security review](security-review.md).

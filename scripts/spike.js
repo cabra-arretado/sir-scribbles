@@ -58,7 +58,7 @@ async function close() {
   const result = await session?.close();
   if (result === false) process.exitCode = 1;
   display('exercise-counts', counts);
-  display('gate', 'NOT CERTIFIED. Record real action execution, denial, cancellation and cleanup evidence in docs/compatibility.md.');
+  display('gate', 'NOT CERTIFIED. Confirm real action execution, denial, cancellation and cleanup with Kiro before release.');
 }
 
 try {
