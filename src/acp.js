@@ -3,6 +3,7 @@ import { TextDecoder } from 'node:util';
 import { LIMITS, OperationalError, isRecord, mergeDefined } from './limits.js';
 import { inspectPermission, cancelledPermission, selectedPermission, isPersistent } from './permissions.js';
 import { terminateOwnedProcess } from './process.js';
+import manifest from '../manifest.json' with { type: 'json' };
 
 const validId = id => (typeof id === 'string' && id.length > 0) || Number.isSafeInteger(id);
 const idKey = id => `${typeof id}:${id}`;
@@ -308,7 +309,7 @@ export class AcpSession extends EventEmitter {
       const initialized = await this.request('initialize', {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        clientInfo: { name: 'sir-scribbles', version: '0.0.1' },
+        clientInfo: { name: manifest.id, version: manifest.version },
       });
       if (!isRecord(initialized) || initialized.protocolVersion !== 1 || !isRecord(initialized.agentCapabilities)) {
         throw new OperationalError('INCOMPATIBLE_PROTOCOL');

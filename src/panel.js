@@ -189,8 +189,8 @@ export class ChatPanel {
 
   fitComposer() {
     // Grow with the draft up to the CSS max-height, then scroll.
-    this.composer.style.height = 'auto';
-    if (this.composer.scrollHeight) this.composer.style.height = `${this.composer.scrollHeight}px`;
+    this.composer.style.removeProperty('--sir-scribbles-prompt-height');
+    if (this.composer.scrollHeight) this.composer.style.setProperty('--sir-scribbles-prompt-height', `${this.composer.scrollHeight}px`);
   }
 
   async attachContext(action, errorCode) {
