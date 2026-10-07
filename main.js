@@ -290,6 +290,8 @@ var LIMITS = Object.freeze({
   session: 16 * 1024 * 1024,
   stderr: 64 * 1024,
   permissions: 16,
+  configOptions: 32,
+  configValues: 256,
   startupMs: 15e3,
   cancellationMs: 5e3,
   shutdownMs: 2e3
@@ -421,6 +423,37 @@ async function terminateOwnedProcess(child, graceMs = LIMITS.shutdownMs) {
 // src/acp.js
 var validId = (id) => typeof id === "string" && id.length > 0 || Number.isSafeInteger(id);
 var idKey = (id) => `${typeof id}:${id}`;
+var label = (value, max = 1024) => typeof value === "string" && value.length > 0 && value.length <= max;
+function configValue(entry, group) {
+  if (!isRecord(entry) || !label(entry.value) || !label(entry.name)) return null;
+  const value = { value: entry.value, name: entry.name };
+  if (label(entry.description)) value.description = entry.description;
+  if (group) value.group = group;
+  return value;
+}
+function sanitizeConfigOptions(input, limits = LIMITS) {
+  if (!Array.isArray(input)) return [];
+  const options = [];
+  for (const entry of input.slice(0, limits.configOptions)) {
+    if (!isRecord(entry) || entry.type !== "select" || !label(entry.id) || !label(entry.name) || !Array.isArray(entry.options) || options.some((option2) => option2.id === entry.id)) continue;
+    const values = [];
+    for (const item of entry.options) {
+      if (isRecord(item) && Array.isArray(item.options)) {
+        for (const nested of item.options.slice(0, limits.configValues - values.length)) {
+          values.push(configValue(nested, label(item.name) ? item.name : ""));
+        }
+      } else values.push(configValue(item, ""));
+      if (values.length >= limits.configValues) break;
+    }
+    const valid = values.filter(Boolean).slice(0, limits.configValues);
+    if (!valid.some((value) => value.value === entry.currentValue)) continue;
+    const option = { id: entry.id, name: entry.name, type: "select", currentValue: entry.currentValue, options: valid };
+    if (label(entry.description)) option.description = entry.description;
+    if (label(entry.category, 128)) option.category = entry.category;
+    options.push(option);
+  }
+  return options;
+}
 var FrameReader = class {
   constructor(onFrame, limit = LIMITS.frame) {
     this.onFrame = onFrame;
@@ -478,6 +511,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.terminate = terminate;
     this.state = "not-started";
     this.sessionId = null;
+    this.configOptions = [];
     this.startupUpdates = [];
     this.pending = /* @__PURE__ */ new Map();
     this.permissions = /* @__PURE__ */ new Map();
@@ -574,10 +608,7 @@ var AcpSession = class extends import_node_events.EventEmitter {
       if (frame.method === "session/update") {
         if (!isRecord(frame.params) || !isRecord(frame.params.update)) throw new OperationalError("INVALID_UPDATE");
         if (this.state === "starting" && this.sessionId === null) this.startupUpdates.push(frame.params);
-        else if (frame.params.sessionId === this.sessionId) {
-          this.rememberToolCall(frame.params.update);
-          this.emit("update", frame.params.update);
-        }
+        else if (frame.params.sessionId === this.sessionId) this.deliver(frame.params.update);
       }
       return;
     }
@@ -589,6 +620,18 @@ var AcpSession = class extends import_node_events.EventEmitter {
     this.pending.delete(frame.id);
     if (Object.hasOwn(frame, "error")) pending.reject(new OperationalError("AGENT_REQUEST_FAILED"));
     else pending.resolve(frame.result);
+  }
+  deliver(update) {
+    if (update.sessionUpdate === "config_option_update") {
+      this.setConfigOptions(update.configOptions);
+      return;
+    }
+    this.rememberToolCall(update);
+    this.emit("update", update);
+  }
+  setConfigOptions(input) {
+    this.configOptions = sanitizeConfigOptions(input, this.limits);
+    this.emit("config-options", this.configOptions);
   }
   rememberToolCall(update) {
     if (!["tool_call", "tool_call_update"].includes(update?.sessionUpdate) || typeof update.toolCallId !== "string") return;
@@ -666,15 +709,16 @@ var AcpSession = class extends import_node_events.EventEmitter {
       }
       if (this.transportClosed) throw new OperationalError("TRANSPORT_CLOSED");
       this.sessionId = session.sessionId;
+      this.configOptions = sanitizeConfigOptions(session.configOptions, this.limits);
       const startupUpdates = this.startupUpdates;
       this.startupUpdates = [];
       for (const params of startupUpdates) {
-        if (params.sessionId === this.sessionId) this.emit("update", params.update);
+        if (params.sessionId === this.sessionId) this.deliver(params.update);
       }
       clearTimeout(this.startupTimer);
       this.startupTimer = null;
       this.setState("ready");
-      return { identity: this.identity, capabilities: this.capabilities };
+      return { identity: this.identity, capabilities: this.capabilities, configOptions: this.configOptions };
     } catch (error) {
       this.fail(error.code || "START_FAILED");
       if (this.cleanup) await this.cleanup;
@@ -707,6 +751,23 @@ var AcpSession = class extends import_node_events.EventEmitter {
       this.toolCalls.clear();
       if (!this.transportClosed) this.setState("ready");
     }
+  }
+  // Only between turns, and only to a value the agent offered. A rejected
+  // change leaves the session usable; the agent keeps its previous value.
+  async setConfigOption(configId, value) {
+    if (this.state !== "ready") throw new OperationalError("CONFIG_NOT_AVAILABLE");
+    const option = this.configOptions.find((entry) => entry.id === configId);
+    if (!option?.options.some((entry) => entry.value === value)) throw new OperationalError("CONFIG_VALUE_UNKNOWN");
+    let result;
+    try {
+      result = await this.request("session/set_config_option", { sessionId: this.sessionId, configId, value });
+    } catch (error) {
+      throw new OperationalError(this.transportClosed ? error.code : "CONFIG_REJECTED");
+    }
+    if (this.transportClosed) throw new OperationalError("TRANSPORT_CLOSED");
+    if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError("CONFIG_REJECTED");
+    this.setConfigOptions(result.configOptions);
+    return this.configOptions;
   }
   stop() {
     if (this.state === "starting") {
@@ -825,7 +886,9 @@ var ERROR_TEXT = {
   CLEANUP_UNCERTAIN: "Agent cleanup could not be confirmed. Force stop again before starting another process.",
   TRANSPORT_LOST: "The agent connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.",
   PROCESS_EXITED: "The agent exited. Check its login and installation in your terminal. The previous task outcome may be uncertain.",
-  PROCESS_FAILED: "The agent could not start. Check the executable, its login and installation."
+  PROCESS_FAILED: "The agent could not start. Check the executable, its login and installation.",
+  CONFIG_REJECTED: "The agent did not change the model. It keeps the previous one.",
+  CONFIG_VALUE_UNKNOWN: "The agent no longer offers that model. Choose another one."
 };
 var errorText = (code2) => ERROR_TEXT[code2] ?? `The agent stopped (${code2 || "UNKNOWN_ERROR"}). The previous task outcome may be uncertain. Start a new chat.`;
 var ChatController = class extends import_node_events2.EventEmitter {
@@ -845,6 +908,8 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.selection = null;
     this.file = null;
     this.identity = "";
+    this.configOptions = [];
+    this.configPending = false;
     this.error = "";
     this.cleanup = "";
     this.forceAvailable = false;
@@ -877,6 +942,10 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.selection = null;
     this.changed();
   }
+  // The session's model choice, if the agent offers one as a config option.
+  modelOption() {
+    return this.configOptions.find((option) => option.category === "model") ?? null;
+  }
   activePermission() {
     return this.session?.permissions.values().next().value ?? null;
   }
@@ -906,6 +975,12 @@ var ChatController = class extends import_node_events2.EventEmitter {
       });
       session.on("update", (update) => {
         if (live()) this.update(update);
+      });
+      session.on("config-options", (options) => {
+        if (live()) {
+          this.configOptions = options;
+          this.changed();
+        }
       });
       for (const event of ["permission", "permission-settled", "permissions-cancelled"]) {
         session.on(event, () => {
@@ -943,6 +1018,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
       const initialized = await session.start(this.cwd);
       if (live()) {
         this.identity = [initialized.identity?.title ?? initialized.identity?.name, initialized.identity?.version].filter((value) => typeof value === "string").join(" \xB7 ");
+        this.configOptions = initialized.configOptions ?? [];
         this.changed();
       }
     } catch (error) {
@@ -984,7 +1060,7 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.changed();
   }
   async send(executable = "") {
-    if (this.resetting || this.disposed || !["not-started", "ready"].includes(this.state)) return;
+    if (this.resetting || this.disposed || this.configPending || !["not-started", "ready"].includes(this.state)) return;
     if (this.state === "not-started" && !executable) return;
     let prompt;
     try {
@@ -1033,6 +1109,26 @@ var ChatController = class extends import_node_events2.EventEmitter {
       }
     } finally {
       if (generation === this.generation && !this.disposed) this.changed();
+    }
+  }
+  async setModel(value) {
+    const option = this.modelOption();
+    if (!option || this.state !== "ready" || this.configPending || this.resetting || this.disposed) return;
+    if (value === option.currentValue) return;
+    const session = this.session;
+    const generation = this.generation;
+    this.configPending = true;
+    this.error = "";
+    this.changed();
+    try {
+      await session.setConfigOption(option.id, value);
+    } catch (error) {
+      if (generation === this.generation && !this.disposed && !session.transportClosed) this.setError(error.code);
+    } finally {
+      if (generation === this.generation && !this.disposed) {
+        this.configPending = false;
+        this.changed();
+      }
     }
   }
   decide(card, optionId) {
@@ -1098,6 +1194,8 @@ var ChatController = class extends import_node_events2.EventEmitter {
     this.selection = null;
     this.file = null;
     this.identity = "";
+    this.configOptions = [];
+    this.configPending = false;
     this.error = "";
     this.cleanup = "";
     this.uiBytes = 0;
@@ -4432,11 +4530,11 @@ function reference(state, startLine, _endLine, silent) {
     }
   }
   if (pos < max && str.charCodeAt(pos) !== 10) return false;
-  const label = normalizeReference(str.slice(1, labelEnd));
-  if (!label) return false;
+  const label2 = normalizeReference(str.slice(1, labelEnd));
+  if (!label2) return false;
   if (silent) return true;
   if (typeof state.env.references === "undefined") state.env.references = {};
-  if (typeof state.env.references[label] === "undefined") state.env.references[label] = {
+  if (typeof state.env.references[label2] === "undefined") state.env.references[label2] = {
     title,
     href
   };
@@ -4444,7 +4542,7 @@ function reference(state, startLine, _endLine, silent) {
   token.map = [startLine, nextLine];
   token.hidden = true;
   const meta = /* @__PURE__ */ Object.create(null);
-  meta.label = label;
+  meta.label = label2;
   token.meta = meta;
   state.line = nextLine;
   return true;
@@ -5244,7 +5342,7 @@ var emphasis_default = {
   postProcess: emphasis_post_process
 };
 function link(state, silent) {
-  let code2, label, res, ref;
+  let code2, label2, res, ref;
   let href = "";
   let title = "";
   let start = state.pos;
@@ -5293,12 +5391,12 @@ function link(state, silent) {
     if (pos < max && state.src.charCodeAt(pos) === 91) {
       start = pos + 1;
       pos = state.md.helpers.parseLinkLabel(state, pos);
-      if (pos >= 0) label = state.src.slice(start, pos++);
+      if (pos >= 0) label2 = state.src.slice(start, pos++);
       else pos = labelEnd + 1;
     } else pos = labelEnd + 1;
-    if (!label) label = state.src.slice(labelStart, labelEnd);
-    label = normalizeReference(label);
-    ref = state.env.references[label];
+    if (!label2) label2 = state.src.slice(labelStart, labelEnd);
+    label2 = normalizeReference(label2);
+    ref = state.env.references[label2];
     if (!ref) {
       state.pos = oldPos;
       return false;
@@ -5313,9 +5411,9 @@ function link(state, silent) {
     const attrs = [["href", href]];
     token_o.attrs = attrs;
     if (title) attrs.push(["title", title]);
-    if (label) {
+    if (label2) {
       const meta = /* @__PURE__ */ Object.create(null);
-      meta.label = label;
+      meta.label = label2;
       token_o.meta = meta;
     }
     state.linkLevel++;
@@ -5328,7 +5426,7 @@ function link(state, silent) {
   return true;
 }
 function image(state, silent) {
-  let code2, content, label, pos, ref, res, title, start;
+  let code2, content, label2, pos, ref, res, title, start;
   let href = "";
   const oldPos = state.pos;
   const max = state.posMax;
@@ -5376,12 +5474,12 @@ function image(state, silent) {
     if (pos < max && state.src.charCodeAt(pos) === 91) {
       start = pos + 1;
       pos = state.md.helpers.parseLinkLabel(state, pos);
-      if (pos >= 0) label = state.src.slice(start, pos++);
+      if (pos >= 0) label2 = state.src.slice(start, pos++);
       else pos = labelEnd + 1;
     } else pos = labelEnd + 1;
-    if (!label) label = state.src.slice(labelStart, labelEnd);
-    label = normalizeReference(label);
-    ref = state.env.references[label];
+    if (!label2) label2 = state.src.slice(labelStart, labelEnd);
+    label2 = normalizeReference(label2);
+    ref = state.env.references[label2];
     if (!ref) {
       state.pos = oldPos;
       return false;
@@ -5399,9 +5497,9 @@ function image(state, silent) {
     token.children = tokens;
     token.content = content;
     if (title) attrs.push(["title", title]);
-    if (label) {
+    if (label2) {
       const meta = /* @__PURE__ */ Object.create(null);
-      meta.label = label;
+      meta.label = label2;
       token.meta = meta;
     }
   }
@@ -6170,10 +6268,10 @@ markdown.inline.ruler.before("link", "vault_link", (state, silent) => {
   if (!content) return false;
   const divider = content.indexOf("|");
   const target = divider < 0 ? content : content.slice(0, divider);
-  const label = divider < 0 ? content : content.slice(divider + 1);
+  const label2 = divider < 0 ? content : content.slice(divider + 1);
   if (!silent) {
     const token = state.push("vault_link", "", 0);
-    token.content = label;
+    token.content = label2;
     token.meta = { target };
   }
   state.pos = end + 2;
@@ -6295,10 +6393,10 @@ function renderMarkdown(container, source, { openNote, sourcePath = "" } = {}) {
           const closed = stack.pop();
           const host = closed.dataset?.externalHost;
           if (host && ![host, closed.getAttribute("href")].includes(closed.textContent.trim())) {
-            const label = document.createElement("span");
-            label.className = "sir-scribbles-link-host";
-            label.textContent = ` (${host})`;
-            closed.after(label);
+            const label2 = document.createElement("span");
+            label2.className = "sir-scribbles-link-host";
+            label2.textContent = ` (${host})`;
+            closed.after(label2);
           }
           continue;
         }
@@ -6382,6 +6480,7 @@ var ChatPanel = class {
     this.lastQueued = -1;
     this.lastSelection = void 0;
     this.lastPath = null;
+    this.lastModel = null;
     this.streaming = /* @__PURE__ */ new Set();
     this.frame = null;
     this.lastFrame = 0;
@@ -6408,17 +6507,17 @@ var ChatPanel = class {
   }
   // Icons come from Obsidian's setIcon when available; the label doubles as
   // the accessible name, Obsidian's tooltip and the text fallback.
-  iconButton(icon, label, action, className = "") {
+  iconButton(icon, label2, action, className = "") {
     const button = this.button("", action, `clickable-icon ${className}`.trim());
-    this.setIcon(button, icon, label);
+    this.setIcon(button, icon, label2);
     return button;
   }
-  setIcon(node, icon, label) {
-    node.setAttribute("aria-label", label);
+  setIcon(node, icon, label2) {
+    node.setAttribute("aria-label", label2);
     if (this.actions.setIcon) {
       node.replaceChildren();
       this.actions.setIcon(node, icon);
-    } else node.textContent = label;
+    } else node.textContent = label2;
   }
   build() {
     this.container.replaceChildren();
@@ -6522,6 +6621,11 @@ var ChatPanel = class {
       }
       await this.attachContext("attachFile", "OPEN_NOTE_FIRST");
     }, "sir-scribbles-attach");
+    this.modelPicker = this.el("select", "dropdown sir-scribbles-model");
+    this.modelPicker.setAttribute("aria-label", "Model");
+    this.modelPicker.addEventListener("change", () => {
+      void this.model.setModel(this.modelPicker.value);
+    });
     this.force = this.button("Force stop agent", () => {
       void this.model.forceStop();
     }, "sir-scribbles-danger");
@@ -6531,7 +6635,7 @@ var ChatPanel = class {
     this.setIcon(this.send, "arrow-up", "Send");
     this.stop = this.button("", () => this.model.stop(), "sir-scribbles-send sir-scribbles-stop");
     this.setIcon(this.stop, "square", "Stop");
-    toolbar.append(this.attach, this.attachFile, this.force, this.stop, this.send);
+    toolbar.append(this.attach, this.attachFile, this.modelPicker, this.force, this.stop, this.send);
     composer.append(this.selectionArea, this.composer, toolbar);
     footer.append(composer);
     this.container.append(footer);
@@ -6559,7 +6663,7 @@ var ChatPanel = class {
   renderControls() {
     const model = this.model;
     const canStart = model.state === "not-started" && Boolean(this.actions.getPath().trim());
-    this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || !(model.draft.trim() || model.selection || model.file);
+    this.send.disabled = !(model.state === "ready" || canStart) || model.resetting || model.disposed || model.configPending || !(model.draft.trim() || model.selection || model.file);
     this.send.title = canStart ? "Start the agent and send (Enter)" : "Send (Enter)";
     this.start.disabled = model.state !== "not-started" || model.resetting || this.startPending;
     this.path.disabled = model.state !== "not-started" || model.resetting;
@@ -6577,6 +6681,7 @@ var ChatPanel = class {
     this.stop.hidden = !["starting", "working", "waiting-for-approval", "stopping"].includes(model.state);
     this.stop.disabled = model.state === "stopping" || model.resetting;
     this.send.hidden = !this.stop.hidden;
+    this.modelPicker.disabled = model.state !== "ready" || model.configPending || model.resetting;
     this.force.hidden = !model.forceAvailable;
     this.force.disabled = model.resetting;
   }
@@ -6601,6 +6706,41 @@ var ChatPanel = class {
     this.renderMessages();
     this.renderSelection();
     this.renderPermission();
+    this.renderModel();
+  }
+  // Agents replace the whole option list on every change, so a new object
+  // means new choices; the current value is synced on every render.
+  renderModel() {
+    const option = this.model.modelOption();
+    this.modelPicker.hidden = !option;
+    if (!option) {
+      this.lastModel = null;
+      return;
+    }
+    if (option !== this.lastModel) {
+      this.lastModel = option;
+      const groups = /* @__PURE__ */ new Map();
+      this.modelPicker.replaceChildren();
+      for (const value of option.options) {
+        const item = this.el("option", "", value.name);
+        item.value = value.value;
+        if (value.description) item.title = value.description;
+        let parent = this.modelPicker;
+        if (value.group) {
+          parent = groups.get(value.group);
+          if (!parent) {
+            parent = this.el("optgroup");
+            parent.label = value.group;
+            groups.set(value.group, parent);
+            this.modelPicker.append(parent);
+          }
+        }
+        parent.append(item);
+      }
+    }
+    const current = option.options.find((value) => value.value === option.currentValue);
+    this.modelPicker.value = option.currentValue;
+    this.modelPicker.title = [option.name, current?.description].filter(Boolean).join(" \xB7 ");
   }
   renderMessages() {
     const nearBottom = this.transcript.scrollHeight - this.transcript.scrollTop - this.transcript.clientHeight < 80;
@@ -6622,7 +6762,7 @@ var ChatPanel = class {
       if (!row) {
         const root = this.el("article", `sir-scribbles-message sir-scribbles-${message.role}`);
         const meta = this.el("div", "sir-scribbles-message-meta");
-        const label = this.el("span", "sir-scribbles-sr-only", message.role === "user" ? "You" : message.role === "tool" ? "Tool activity" : "Agent");
+        const label2 = this.el("span", "sir-scribbles-sr-only", message.role === "user" ? "You" : message.role === "tool" ? "Tool activity" : "Agent");
         const timestamp = this.el("time", "sir-scribbles-timestamp");
         const date = new Date(message.timestamp ?? Date.now());
         timestamp.dateTime = date.toISOString();
@@ -6642,12 +6782,12 @@ var ChatPanel = class {
           body = this.el("pre", "sir-scribbles-plain-text");
           const summary = this.el("summary");
           details.append(summary, body);
-          root.append(label, details, meta);
-          row = { root, body, summary, label, rendered: "" };
+          root.append(label2, details, meta);
+          row = { root, body, summary, label: label2, rendered: "" };
         } else {
           body = this.el("div", message.role === "agent" ? "sir-scribbles-markdown" : "sir-scribbles-plain-text");
-          root.append(label, body, meta);
-          row = { root, body, label, rendered: "" };
+          root.append(label2, body, meta);
+          row = { root, body, label: label2, rendered: "" };
         }
         this.rows.set(message, row);
         this.transcript.append(root);
