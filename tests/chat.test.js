@@ -463,3 +463,20 @@ test('a refused listing after Start agent offers nothing and leaves the chat usa
   assert.equal(controller.recent, null);
   assert.equal(controller.error, '');
 });
+
+test('reopening keeps the composer as it is when the old agent finishes closing', async () => {
+  const { controller, session } = create();
+  await controller.start('/fixture');
+  controller.setDraft('Original draft');
+  controller.attach(selected);
+  let closing;
+  session.close = () => new Promise(resolve => { closing = resolve; });
+  const reopening = controller.reopen('/fixture', 'old');
+  controller.setDraft('Edited draft');
+  controller.removeSelection();
+  closing();
+  await reopening;
+  assert.equal(session.opened, 'old');
+  assert.equal(controller.draft, 'Edited draft');
+  assert.equal(controller.selection, null);
+});
