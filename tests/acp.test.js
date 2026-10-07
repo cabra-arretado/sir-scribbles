@@ -513,3 +513,16 @@ test('a late model reply never replaces a newer confirmed change or agent update
   await delay(200);
   assert.equal(notified.configOptions.find(option => option.id === 'model').currentValue, 'sonnet');
 });
+
+test('when two model changes both time out, the later request\'s late reply wins in either arrival order', async t => {
+  for (const mode of ['config-stall', 'config-stall-reverse']) {
+    const session = create(t, mode, { requestMs: 20 });
+    await session.start('/fixture');
+    await assert.rejects(session.setConfigOption('model', 'opus'), { code: 'CONFIG_TIMEOUT' });
+    await assert.rejects(session.setConfigOption('model', 'sonnet'), { code: 'CONFIG_TIMEOUT' });
+    await delay(350); // Both late replies have arrived.
+    assert.equal(session.configOptions.find(option => option.id === 'model').currentValue, 'sonnet', mode);
+    assert.equal(session.expired.size, 0);
+    assert.equal(session.state, 'ready');
+  }
+});
