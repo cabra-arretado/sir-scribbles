@@ -289,7 +289,7 @@ test('external links show their destination host and full address', t => {
   panel.render();
   const [disguised, plain] = panel.transcript.querySelectorAll('.sir-scribbles-agent a');
   assert.equal(disguised.nextSibling.textContent, ' (evil.test)');
-  assert.equal(disguised.hasAttribute('title'), false);
+  assert.equal(disguised.title, 'Docs\nhttps://evil.test/?d=secret');
   assert.equal(plain.nextSibling?.className ?? '', '');
 });
 
@@ -720,15 +720,24 @@ test('a real Kiro write request explains itself and offers its always choices', 
   assert.ok(!area.textContent.includes('Kind:'));
 });
 
-test('nothing in the panel carries a tooltip', t => {
+test('areas carry no tooltip; buttons and links keep theirs', t => {
   const { model, panel, root } = create(t);
-  model.selection = Object.freeze({ path: 'n.md', from: 1, to: 2, text: 'x' });
-  model.file = Object.freeze({ kind: 'file', path: 'n.md' });
-  model.attachments = [{ kind: 'image', name: 'a.png', size: 1, preview: '' }, { kind: 'text', name: 'b.md', size: 1, text: 'b' }];
-  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[docs](https://evil.test/) and [[Plan]]' } });
+  model.attachments = [{ kind: 'image', name: 'a.png', size: 1, preview: '' }];
+  model.reading = 1;
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[docs](https://evil.test/)' } });
   model.session = { permissions: new Map([[1, { id: 1, params: { toolCall: { toolCallId: 't', kind: 'execute', rawInput: { command: 'ls' } } },
     options: [{ optionId: 'a', name: 'Allow', kind: 'allow_once' }, { optionId: 'd', name: 'Deny', kind: 'reject_once' }] }]]) };
   model.state = 'waiting-for-approval';
   panel.render();
-  assert.equal(root.querySelectorAll('[title], [aria-label]').length, 0);
+  // Obsidian shows aria-labels as tooltips: none on areas or plain controls.
+  for (const area of [panel.historyArea, panel.permissionArea, panel.attachmentArea, panel.path, panel.modelPicker, panel.composer]) {
+    assert.equal(area.hasAttribute('aria-label') || area.hasAttribute('title'), false, area.className);
+  }
+  assert.equal(root.querySelector('.is-pending').hasAttribute('aria-label'), false);
+  assert.equal(root.querySelector(`label[for="${panel.modelPicker.id}"]`).textContent, 'Model');
+  assert.equal(root.querySelector(`label[for="${panel.path.id}"]`).textContent, 'Agent executable path');
+  // Buttons that are only an icon still say what they do; links where they go.
+  assert.equal(panel.attachUpload.getAttribute('aria-label'), 'Attach images or text files');
+  assert.equal(root.querySelector('.sir-scribbles-agent a').title, 'https://evil.test/');
+  assert.equal(root.querySelector('.sir-scribbles-attachment').title, 'a.png · 1 B');
 });

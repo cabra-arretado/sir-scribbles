@@ -66,27 +66,21 @@ export class ChatPanel {
     button.addEventListener('click', action);
     return button;
   }
-  // Icons come from Obsidian's setIcon when available. Obsidian shows any
-  // aria-label as a hover tooltip, so the accessible name is visually hidden
-  // text instead; without icons the label is the visible text.
+  // Icons come from Obsidian's setIcon when available; the label doubles as
+  // the accessible name, Obsidian's tooltip and the text fallback.
   iconButton(icon, label, action, className = '') {
     const button = this.button('', action, `clickable-icon ${className}`.trim());
     this.setIcon(button, icon, label);
     return button;
   }
   setIcon(node, icon, label) {
-    if (this.actions.setIcon) {
-      node.replaceChildren();
-      this.actions.setIcon(node, icon);
-      node.append(this.el('span', 'sir-scribbles-sr-only', label));
-    } else node.textContent = label;
-  }
-  rename(node, label) {
-    const hidden = node.querySelector(':scope > .sir-scribbles-sr-only');
-    if (hidden) hidden.textContent = label;
+    node.setAttribute('aria-label', label);
+    if (this.actions.setIcon) { node.replaceChildren(); this.actions.setIcon(node, icon); }
     else node.textContent = label;
   }
-  // A visually hidden <label> names a form control without a tooltip.
+  // Obsidian shows any aria-label as a tooltip. Areas and plain controls whose
+  // purpose is obvious are named by hidden text instead, so hovering them shows
+  // nothing; a visually hidden <label> names a form control.
   labelFor(control, text) {
     control.id = `sir-scribbles-control-${++controlIds}`;
     const label = this.el('label', 'sir-scribbles-sr-only', text);
@@ -124,6 +118,7 @@ export class ChatPanel {
     emptyMascot.src = MASCOT_URL;
     emptyMascot.alt = '';
     const directory = this.el('p', 'sir-scribbles-directory', this.model.cwd);
+    directory.title = this.model.cwd;
     this.empty.append(emptyMascot, this.el('h3', '', 'A little room to think.'),
       this.el('p', 'sir-scribbles-lede', 'Ask about your work. Bring a selection from a note when it helps.'), directory);
     // Past chats sit under the mascot; the list scrolls on its own.
@@ -317,6 +312,7 @@ export class ChatPanel {
     const canStart = (model.state === 'not-started' && Boolean(this.actions.getPath().trim())) || model.state === 'connected';
     this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending ||
       Boolean(model.history?.pending) || Boolean(model.reading) || !(model.draft.trim() || model.selection || model.file || model.attachments?.length);
+    this.send.title = model.reading ? 'Reading attached files…' : canStart ? 'Start a new chat and send (Enter)' : 'Send (Enter)';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.browse.disabled = this.start.disabled;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
@@ -327,10 +323,10 @@ export class ChatPanel {
     this.attachFile.disabled = model.resetting || model.disposed;
     this.attachUpload.disabled = model.resetting || model.disposed;
     this.attachFile.setAttribute('aria-pressed', String(Boolean(model.file)));
-    this.rename(this.attachFile, model.file ? 'Remove attached note' : 'Attach current note');
+    this.attachFile.setAttribute('aria-label', model.file ? 'Remove attached note' : 'Attach current note');
     this.attachFile.classList.toggle('is-active', Boolean(model.file));
     this.attach.setAttribute('aria-pressed', String(Boolean(model.selection)));
-    this.rename(this.attach, model.selection ? 'Replace selection with the current one' : 'Attach selection');
+    this.attach.setAttribute('aria-label', model.selection ? 'Replace selection with the current one' : 'Attach selection');
     this.attach.classList.toggle('is-active', Boolean(model.selection));
     this.stop.hidden = !['starting', 'working', 'waiting-for-approval', 'stopping'].includes(model.state);
     this.stop.disabled = model.state === 'stopping' || model.resetting;
@@ -344,6 +340,7 @@ export class ChatPanel {
     const model = this.model;
     this.status.textContent = STATES[model.state] ?? model.state;
     this.status.dataset.state = model.state;
+    this.status.title = model.cwd;
     this.identity.textContent = model.identity || '';
     this.error.textContent = model.error + (model.cleanup === 'observed' ? `${model.error ? '\n' : ''}Owned process cleanup observed.` : '');
     this.error.hidden = !this.error.textContent;
@@ -394,8 +391,10 @@ export class ChatPanel {
           const date = new Date(entry.updatedAt);
           const time = this.el('time', 'sir-scribbles-history-date', date.toLocaleDateString([], { month: 'short', day: 'numeric' }));
           time.dateTime = date.toISOString();
+          time.title = date.toLocaleString();
           button.append(time);
         }
+        button.title = title;
         item.append(button);
         list.append(item);
       }
@@ -420,6 +419,7 @@ export class ChatPanel {
       for (const value of option.options) {
         const item = this.el('option', '', value.name);
         item.value = value.value;
+        if (value.description) item.title = value.description;
         let parent = this.modelPicker;
         if (value.group) {
           parent = groups.get(value.group);
@@ -433,7 +433,9 @@ export class ChatPanel {
         parent.append(item);
       }
     }
+    const current = option.options.find(value => value.value === option.currentValue);
     this.modelPicker.value = option.currentValue;
+    this.modelPicker.title = [option.name, current?.description].filter(Boolean).join(' · ');
   }
 
   renderMessages() {
@@ -458,6 +460,7 @@ export class ChatPanel {
           const timestamp = this.el('time', 'sir-scribbles-timestamp');
           const date = new Date(message.timestamp ?? Date.now());
           timestamp.dateTime = date.toISOString();
+          timestamp.title = date.toLocaleString();
           timestamp.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           meta.append(timestamp);
         }
@@ -547,6 +550,7 @@ export class ChatPanel {
         row.rendered = null;
         this.paintReply(row);
       }, 'sir-scribbles-more');
+      row.more.title = 'Part of this long reply is not shown yet. Copy includes all of it.';
       row.body.after(row.more);
     }
     if (row.more) row.more.hidden = !truncated;
@@ -597,6 +601,7 @@ export class ChatPanel {
       const fileCard = this.el('div', 'sir-scribbles-context-card');
       const fileRow = this.el('div', 'sir-scribbles-selection-header');
       const path = this.el('span', 'sir-scribbles-context-path', file.path);
+      path.title = `${file.path} · path only`;
       fileRow.append(this.el('span', 'sir-scribbles-context-label', 'Note'), path,
         this.iconButton('x', 'Remove file', () => this.model.removeFile(), 'sir-scribbles-context-remove'));
       fileCard.append(fileRow);
@@ -608,6 +613,7 @@ export class ChatPanel {
     details.open = false;
     const summary = this.el('summary', 'sir-scribbles-selection-header');
     const path = this.el('span', 'sir-scribbles-context-path', `${selection.path}:${selection.from}–${selection.to}`);
+    path.title = `${selection.path} · lines ${selection.from}–${selection.to} · click to preview`;
     summary.append(this.el('span', 'sir-scribbles-context-label', 'Selection'), path,
       this.iconButton('x', 'Remove selection', event => { event.preventDefault(); this.model.removeSelection(); }, 'sir-scribbles-context-remove'));
     details.append(summary, this.el('pre', 'sir-scribbles-selection-text', selection.text));
@@ -639,6 +645,7 @@ export class ChatPanel {
     const list = this.el('ul', 'sir-scribbles-attachment-list');
     for (const item of attachments) {
       const chip = this.el('li', `sir-scribbles-attachment is-${item.kind}`);
+      chip.title = `${item.name} · ${formatBytes(item.size)}`;
       if (item.kind === 'image' && item.preview) {
         const thumb = this.el('img', 'sir-scribbles-attachment-thumb');
         thumb.src = item.preview;

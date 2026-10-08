@@ -110,3 +110,14 @@ test('closing a tab with uncertain cleanup shows Force stop in a live panel', as
   await new Promise(resolve => setTimeout(resolve, 60));
   assert.match(root.querySelector('.sir-scribbles-error').textContent, /later update/);
 });
+
+test('the tab strip has no tooltip of its own', t => {
+  const dom = new JSDOM('<main></main>');
+  const tabs = new ChatTabs(() => new ChatController('/fixture-vault'), 2);
+  tabs.add();
+  const root = dom.window.document.querySelector('main');
+  const view = new TabbedPanel(root, tabs, { getPath: () => '', savePath: async () => {}, attachSelection: async () => {}, attachFile: async () => {}, copyText: async () => {}, confirmClose: async () => true });
+  t.after(async () => { view.dispose(); await tabs.dispose(); dom.window.close(); });
+  assert.equal(view.strip.hasAttribute('aria-label'), false);
+  assert.equal(root.querySelector('.sir-scribbles-tab-add').getAttribute('aria-label'), 'New chat');
+});

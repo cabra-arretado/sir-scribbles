@@ -144,13 +144,12 @@ test('file URLs into the vault decode once and keep heading and block references
   dom.window.close();
 });
 
-test('note links carry no tooltip; the destination is recorded for repaint', () => {
+test('note links name the note they open, whatever their text says', () => {
   const dom = new JSDOM('<main></main>');
   const root = dom.window.document.querySelector('main');
   renderMarkdown(root, '[[Projects/Plan|the budget]] and [safe](../Tools/run.command "Docs")', { openNote: () => {} });
   const [wiki, markdownLink] = root.querySelectorAll('a');
-  assert.equal(wiki.hasAttribute('title'), false);
-  assert.equal(markdownLink.hasAttribute('title'), false);
-  assert.equal(JSON.parse(wiki.dataset.note), 'Projects/Plan');
+  assert.equal(wiki.title, 'Projects/Plan');
+  assert.equal(markdownLink.title, 'Docs\n../Tools/run.command');
   dom.window.close();
 });
