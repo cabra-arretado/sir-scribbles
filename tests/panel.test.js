@@ -37,6 +37,8 @@ function create(t, { frames = false, approvalDelay = 0 } = {}) {
   return { dom, model, root, panel, frame, pending, attached: () => attached, copied: () => copied };
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 50));
+// Buttons are named by their text: visible without icons, hidden with them.
+const byName = (root, name) => [...root.querySelectorAll('button')].find(button => button.textContent === name) ?? null;
 
 test('opening panel never starts the agent and initial controls express state', t => {
   const { panel, root, model } = create(t);
@@ -69,7 +71,7 @@ test('selection preview is complete and removable; replacement is explicit', asy
   assert.equal(panel.attach.getAttribute('aria-pressed'), 'true');
   assert.equal(panel.selectionArea.querySelectorAll('script, img').length, 0);
   assert.equal(panel.selectionArea.querySelector('details').open, false);
-  root.querySelector('[aria-label="Remove selection"]').click();
+  byName(root, 'Remove selection').click();
   await tick();
   assert.equal(model.selection, null);
   assert.equal(panel.selectionArea.hidden, true);
@@ -85,8 +87,8 @@ test('ID-only permission shows fallback details and leaves the choice to the use
   model.state = 'waiting-for-approval';
   panel.render();
   assert.equal(panel.permissionArea.hidden, false);
-  assert.ok(root.textContent.includes('Tool replace'));
-  assert.ok(root.textContent.includes('Tool arguments were not supplied'));
+  assert.equal(root.querySelector('.sir-scribbles-permission-area h3').textContent, 'Use a tool');
+  assert.ok(root.textContent.includes('The agent did not say exactly what this will do.'));
   assert.equal(root.querySelectorAll('.sir-scribbles-decisions button').length, 2);
   assert.equal(model.session.permissions.size, 1);
 });
@@ -105,7 +107,7 @@ test('a double-click cannot approve the next queued action', async t => {
   assert.deepEqual(decided, [], 'a card that just appeared ignores clicks');
   await tick();
   allow().click();
-  assert.equal(root.querySelector('.sir-scribbles-permission-area h3').textContent, 'Second');
+  assert.equal(root.querySelector('.sir-scribbles-approval-detail').textContent, 'Second');
   allow().click();
   assert.deepEqual(decided, ['allow-1'], 'the second click of a double-click lands on a waiting button');
   await tick();
@@ -126,7 +128,7 @@ test('one-time approval buttons use original IDs, omit persistent choices and re
   const buttons = [...root.querySelectorAll('.sir-scribbles-decisions button')];
   assert.equal(buttons.length, 2);
   assert.ok(root.textContent.includes('/sensitive'));
-  assert.ok(root.textContent.includes('Unrecognized approval metadata: _meta.kiro.consent.scope.'));
+  assert.ok(root.textContent.includes('does not recognize (_meta.kiro.consent.scope), so only one-time choices are offered.'));
   assert.equal(root.querySelectorAll('b, script').length, 0);
   buttons[0].click();
   assert.deepEqual(decided, [7, 'actual-allow']);
@@ -287,7 +289,7 @@ test('external links show their destination host and full address', t => {
   panel.render();
   const [disguised, plain] = panel.transcript.querySelectorAll('.sir-scribbles-agent a');
   assert.equal(disguised.nextSibling.textContent, ' (evil.test)');
-  assert.equal(disguised.title, 'Docs\nhttps://evil.test/?d=secret');
+  assert.equal(disguised.hasAttribute('title'), false);
   assert.equal(plain.nextSibling?.className ?? '', '');
 });
 
@@ -473,10 +475,11 @@ test('always choices appear only with a rule and say exactly what is saved', t =
   model.state = 'waiting-for-approval';
   panel.render();
   const buttons = [...root.querySelectorAll('.sir-scribbles-decisions button')];
-  assert.deepEqual(buttons.map(button => button.textContent.split(' · ')[0]), ['Allow once', 'Always allow', 'Deny once', 'Always deny']);
-  assert.equal(root.querySelector('.sir-scribbles-rule code').textContent, 'shell · <b>npm test</b>');
+  // One-time choices on the first row, saved rules on the second.
+  assert.deepEqual(buttons.map(button => button.textContent), ['Allow once', 'Deny once', 'Always allow', 'Always deny']);
+  assert.equal(root.querySelector('.sir-scribbles-rule code').textContent, '<b>npm test</b>');
   assert.equal(root.querySelectorAll('.sir-scribbles-permission-area b').length, 0);
-  buttons[1].click();
+  buttons[2].click();
   assert.equal(decided, 'always-accept');
 });
 
@@ -668,7 +671,7 @@ test('replayed image turns show placeholder chips under their bubble', t => {
   assert.equal(turns[0].querySelector('.sir-scribbles-plain-text').textContent, 'Look');
   assert.equal(turns[0].querySelectorAll('.sir-scribbles-attachment.is-image').length, 1);
   assert.equal(turns[1].querySelector('.sir-scribbles-plain-text').hidden, true);
-  assert.equal(turns[1].querySelector('.sir-scribbles-attachment-icon').getAttribute('aria-label'), 'Image');
+  assert.equal(turns[1].querySelector('.sir-scribbles-attachment-icon').textContent, 'Image');
 });
 
 test('a slow paste survives Start agent and still attaches', async t => {
@@ -687,4 +690,45 @@ test('a slow paste survives Start agent and still attaches', async t => {
   model.setDraft('go');
   panel.renderControls();
   assert.equal(panel.send.disabled, false);
+});
+
+test('a real Kiro write request explains itself and offers its always choices', t => {
+  const { model, panel, root } = create(t);
+  const vaultPath = '/fixture-vault';
+  const file = `${vaultPath}/TaskNotes/Views/kanban-native.base`;
+  const card = { id: 10,
+    request: { sessionId: 's', toolCall: { toolCallId: 'w', status: 'pending', title: 'Write File' } },
+    params: { toolCall: { toolCallId: 'w', title: 'Write File', kind: 'edit', status: 'pending', rawInput: { path: file, text: 'views:\n  - type: kanban\n' }, locations: [{ path: file }] } },
+    options: [
+      { optionId: 'accept', name: 'Allow', kind: 'allow_once' }, { optionId: 'always-accept', name: 'Always allow', kind: 'allow_always' },
+      { optionId: 'reject', name: 'Deny', kind: 'reject_once' }, { optionId: 'always-reject', name: 'Always deny', kind: 'reject_always' },
+    ],
+    unrecognized: [], rule: { capability: 'fs_write', resource: 'TaskNotes/Views/kanban-native.base', workspaceRoot: vaultPath } };
+  model.session = { permissions: new Map([[10, card]]), identity: { name: 'kiro', title: 'Kiro' }, decide: () => true };
+  model.state = 'waiting-for-approval';
+  panel.render();
+  const area = panel.permissionArea;
+  assert.equal(area.querySelector('h3').textContent, 'Write a file');
+  assert.equal(area.querySelector('.sir-scribbles-approval-sentence').textContent, 'Kiro wants to write to a file in this vault.');
+  assert.equal(area.querySelector('.sir-scribbles-approval-paths code').textContent, 'TaskNotes/Views/kanban-native.base');
+  assert.equal(area.querySelector('.sir-scribbles-approval-code').textContent, 'views:\n  - type: kanban\n');
+  assert.deepEqual([...area.querySelectorAll('.is-once button')].map(button => button.textContent), ['Allow once', 'Deny once']);
+  assert.deepEqual([...area.querySelectorAll('.is-always button')].map(button => button.textContent), ['Always allow', 'Always deny']);
+  assert.equal(area.querySelector('.sir-scribbles-rule').textContent, 'Always remembers this choice for this file in every chat in this vault.');
+  assert.equal(area.querySelector('details').open, false, 'technical details start closed');
+  assert.ok(!area.textContent.includes('Request 10'));
+  assert.ok(!area.textContent.includes('Kind:'));
+});
+
+test('nothing in the panel carries a tooltip', t => {
+  const { model, panel, root } = create(t);
+  model.selection = Object.freeze({ path: 'n.md', from: 1, to: 2, text: 'x' });
+  model.file = Object.freeze({ kind: 'file', path: 'n.md' });
+  model.attachments = [{ kind: 'image', name: 'a.png', size: 1, preview: '' }, { kind: 'text', name: 'b.md', size: 1, text: 'b' }];
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[docs](https://evil.test/) and [[Plan]]' } });
+  model.session = { permissions: new Map([[1, { id: 1, params: { toolCall: { toolCallId: 't', kind: 'execute', rawInput: { command: 'ls' } } },
+    options: [{ optionId: 'a', name: 'Allow', kind: 'allow_once' }, { optionId: 'd', name: 'Deny', kind: 'reject_once' }] }]]) };
+  model.state = 'waiting-for-approval';
+  panel.render();
+  assert.equal(root.querySelectorAll('[title], [aria-label]').length, 0);
 });

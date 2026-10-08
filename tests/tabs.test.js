@@ -5,6 +5,8 @@ import { JSDOM } from 'jsdom';
 import { ChatTabs, TabbedPanel } from '../src/tabs.js';
 import { ChatController } from '../src/chat.js';
 
+const byName = (root, name) => [...root.querySelectorAll('button')].find(button => button.textContent === name) ?? null;
+
 class Chat extends EventEmitter {
   constructor(id) { super(); this.id = id; this.messages = []; this.draft = ''; this.state = 'not-started'; this.title = ''; this.clean = true; }
   async dispose() { this.disposed = true; this.removeAllListeners(); return this.clean; }
@@ -61,7 +63,7 @@ test('tab strip shows one panel per chat and asks before closing a chat with con
     copyText: async () => {}, confirmClose: async () => { asked++; return false; },
   });
   t.after(async () => { view.dispose(); await tabs.dispose(); dom.window.close(); });
-  const add = root.querySelector('[aria-label="New chat"]');
+  const add = root.querySelector('.sir-scribbles-tab-add');
   add.click();
   assert.equal(root.querySelectorAll('[role="tab"]').length, 2);
   assert.equal(add.disabled, true);
@@ -72,12 +74,12 @@ test('tab strip shows one panel per chat and asks before closing a chat with con
   view.render();
   assert.deepEqual([...panes].map(pane => pane.hidden), [false, true]);
   tabs.active.setDraft('unsent');
-  root.querySelector('[aria-label="Close chat"]').click();
+  byName(root, 'Close chat').click();
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(asked, 1);
   assert.equal(tabs.chats.length, 2);
   tabs.active.setDraft('');
-  root.querySelector('[aria-label="Close chat"]').click();
+  byName(root, 'Close chat').click();
   await new Promise(resolve => setTimeout(resolve, 10));
   view.render();
   assert.equal(asked, 1);
@@ -97,7 +99,7 @@ test('closing a tab with uncertain cleanup shows Force stop in a live panel', as
     copyText: async () => {}, confirmClose: async () => true,
   });
   t.after(() => { view.dispose(); dom.window.close(); });
-  root.querySelector('[aria-label="Close chat"]').click();
+  byName(root, 'Close chat').click();
   await new Promise(resolve => setTimeout(resolve, 10));
   const force = [...root.querySelectorAll('button')].find(button => button.textContent === 'Force stop agent');
   assert.equal(force.hidden, false);

@@ -4,11 +4,13 @@ import { ICON_URL } from './icon.js';
 import { displayPrompt } from './display.js';
 import { ACCEPT, attachmentKind, checkAttachments, formatBytes, readAttachment } from './attachments.js';
 import { OperationalError } from './limits.js';
+import { describeApproval, describePath } from './approval.js';
 
 // A card can appear, or replace one just decided, under the pointer. Its
 // buttons wait this long so a double-click never approves an unread action.
 const APPROVAL_DELAY_MS = 500;
 
+let controlIds = 0;
 const DECISIONS = { allow_once: 'Allow once', reject_once: 'Deny once', allow_always: 'Always allow', reject_always: 'Always deny' };
 
 const STATES = {
@@ -64,17 +66,32 @@ export class ChatPanel {
     button.addEventListener('click', action);
     return button;
   }
-  // Icons come from Obsidian's setIcon when available; the label doubles as
-  // the accessible name, Obsidian's tooltip and the text fallback.
+  // Icons come from Obsidian's setIcon when available. Obsidian shows any
+  // aria-label as a hover tooltip, so the accessible name is visually hidden
+  // text instead; without icons the label is the visible text.
   iconButton(icon, label, action, className = '') {
     const button = this.button('', action, `clickable-icon ${className}`.trim());
     this.setIcon(button, icon, label);
     return button;
   }
   setIcon(node, icon, label) {
-    node.setAttribute('aria-label', label);
-    if (this.actions.setIcon) { node.replaceChildren(); this.actions.setIcon(node, icon); }
+    if (this.actions.setIcon) {
+      node.replaceChildren();
+      this.actions.setIcon(node, icon);
+      node.append(this.el('span', 'sir-scribbles-sr-only', label));
+    } else node.textContent = label;
+  }
+  rename(node, label) {
+    const hidden = node.querySelector(':scope > .sir-scribbles-sr-only');
+    if (hidden) hidden.textContent = label;
     else node.textContent = label;
+  }
+  // A visually hidden <label> names a form control without a tooltip.
+  labelFor(control, text) {
+    control.id = `sir-scribbles-control-${++controlIds}`;
+    const label = this.el('label', 'sir-scribbles-sr-only', text);
+    label.htmlFor = control.id;
+    return label;
   }
   build() {
     this.container.replaceChildren();
@@ -107,26 +124,23 @@ export class ChatPanel {
     emptyMascot.src = MASCOT_URL;
     emptyMascot.alt = '';
     const directory = this.el('p', 'sir-scribbles-directory', this.model.cwd);
-    directory.title = this.model.cwd;
     this.empty.append(emptyMascot, this.el('h3', '', 'A little room to think.'),
       this.el('p', 'sir-scribbles-lede', 'Ask about your work. Bring a selection from a note when it helps.'), directory);
     // Past chats sit under the mascot; the list scrolls on its own.
     this.historyArea = this.el('section', 'sir-scribbles-history');
-    this.historyArea.setAttribute('aria-label', 'Past chats');
     this.empty.append(this.historyArea);
     this.startArea = this.el('section', 'sir-scribbles-start-area');
     this.startArea.append(this.el('h4', '', 'Connect your local agent'));
     this.path = this.el('input', 'sir-scribbles-path');
     this.path.type = 'text';
     this.path.placeholder = '/absolute/path/to/agent';
-    this.path.setAttribute('aria-label', 'Agent executable path');
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
     this.start = this.button('Start agent', () => this.launch('start'), 'mod-cta sir-scribbles-primary');
     this.browse = this.button('Open a past chat', () => this.launch('browse'), 'sir-scribbles-secondary');
     const launchRow = this.el('div', 'sir-scribbles-launch');
     launchRow.append(this.start, this.browse);
-    this.startArea.append(this.path,
+    this.startArea.append(this.labelFor(this.path, 'Agent executable path'), this.path,
       this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       launchRow,
       this.el('p', 'sir-scribbles-caption', 'Sending a prompt starts the agent on its default model. Start it first to pick another model or a past chat.'));
@@ -139,7 +153,6 @@ export class ChatPanel {
     this.container.append(this.transcript);
 
     this.permissionArea = this.el('section', 'sir-scribbles-permission-area');
-    this.permissionArea.setAttribute('aria-label', 'Action requiring permission');
     this.container.append(this.permissionArea);
 
     const footer = this.el('footer', 'sir-scribbles-footer');
@@ -185,16 +198,14 @@ export class ChatPanel {
     }, 'sir-scribbles-attach');
     // Obsidian styles a plain select with its own "dropdown" class.
     this.modelPicker = this.el('select', 'dropdown sir-scribbles-model');
-    this.modelPicker.setAttribute('aria-label', 'Model');
     this.modelPicker.addEventListener('change', () => { void this.model.setModel(this.modelPicker.value); });
     this.force = this.button('Force stop agent', () => { void this.model.forceStop(); }, 'sir-scribbles-danger');
     this.send = this.button('', () => { void this.model.send(this.actions.getPath().trim()); }, 'mod-cta sir-scribbles-send');
     this.setIcon(this.send, 'arrow-up', 'Send');
     this.stop = this.button('', () => this.model.stop(), 'sir-scribbles-send sir-scribbles-stop');
     this.setIcon(this.stop, 'square', 'Stop');
-    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.modelPicker, this.force, this.stop, this.send);
+    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.force, this.stop, this.send);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
-    this.attachmentArea.setAttribute('aria-label', 'Attached files');
     composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
     footer.append(composer);
     this.container.append(footer);
@@ -306,7 +317,6 @@ export class ChatPanel {
     const canStart = (model.state === 'not-started' && Boolean(this.actions.getPath().trim())) || model.state === 'connected';
     this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending ||
       Boolean(model.history?.pending) || Boolean(model.reading) || !(model.draft.trim() || model.selection || model.file || model.attachments?.length);
-    this.send.title = model.reading ? 'Reading attached files…' : canStart ? 'Start a new chat and send (Enter)' : 'Send (Enter)';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.browse.disabled = this.start.disabled;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
@@ -317,10 +327,10 @@ export class ChatPanel {
     this.attachFile.disabled = model.resetting || model.disposed;
     this.attachUpload.disabled = model.resetting || model.disposed;
     this.attachFile.setAttribute('aria-pressed', String(Boolean(model.file)));
-    this.attachFile.setAttribute('aria-label', model.file ? 'Remove attached note' : 'Attach current note');
+    this.rename(this.attachFile, model.file ? 'Remove attached note' : 'Attach current note');
     this.attachFile.classList.toggle('is-active', Boolean(model.file));
     this.attach.setAttribute('aria-pressed', String(Boolean(model.selection)));
-    this.attach.setAttribute('aria-label', model.selection ? 'Replace selection with the current one' : 'Attach selection');
+    this.rename(this.attach, model.selection ? 'Replace selection with the current one' : 'Attach selection');
     this.attach.classList.toggle('is-active', Boolean(model.selection));
     this.stop.hidden = !['starting', 'working', 'waiting-for-approval', 'stopping'].includes(model.state);
     this.stop.disabled = model.state === 'stopping' || model.resetting;
@@ -334,7 +344,6 @@ export class ChatPanel {
     const model = this.model;
     this.status.textContent = STATES[model.state] ?? model.state;
     this.status.dataset.state = model.state;
-    this.status.title = model.cwd;
     this.identity.textContent = model.identity || '';
     this.error.textContent = model.error + (model.cleanup === 'observed' ? `${model.error ? '\n' : ''}Owned process cleanup observed.` : '');
     this.error.hidden = !this.error.textContent;
@@ -385,10 +394,8 @@ export class ChatPanel {
           const date = new Date(entry.updatedAt);
           const time = this.el('time', 'sir-scribbles-history-date', date.toLocaleDateString([], { month: 'short', day: 'numeric' }));
           time.dateTime = date.toISOString();
-          time.title = date.toLocaleString();
           button.append(time);
         }
-        button.title = title;
         item.append(button);
         list.append(item);
       }
@@ -413,7 +420,6 @@ export class ChatPanel {
       for (const value of option.options) {
         const item = this.el('option', '', value.name);
         item.value = value.value;
-        if (value.description) item.title = value.description;
         let parent = this.modelPicker;
         if (value.group) {
           parent = groups.get(value.group);
@@ -427,9 +433,7 @@ export class ChatPanel {
         parent.append(item);
       }
     }
-    const current = option.options.find(value => value.value === option.currentValue);
     this.modelPicker.value = option.currentValue;
-    this.modelPicker.title = [option.name, current?.description].filter(Boolean).join(' · ');
   }
 
   renderMessages() {
@@ -455,7 +459,6 @@ export class ChatPanel {
           const date = new Date(message.timestamp ?? Date.now());
           timestamp.dateTime = date.toISOString();
           timestamp.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          timestamp.title = date.toLocaleString();
           meta.append(timestamp);
         }
         meta.append(this.iconButton('copy', 'Copy', async () => {
@@ -544,7 +547,6 @@ export class ChatPanel {
         row.rendered = null;
         this.paintReply(row);
       }, 'sir-scribbles-more');
-      row.more.title = 'Part of this long reply is not shown yet. Copy includes all of it.';
       row.body.after(row.more);
     }
     if (row.more) row.more.hidden = !truncated;
@@ -595,7 +597,6 @@ export class ChatPanel {
       const fileCard = this.el('div', 'sir-scribbles-context-card');
       const fileRow = this.el('div', 'sir-scribbles-selection-header');
       const path = this.el('span', 'sir-scribbles-context-path', file.path);
-      path.title = `${file.path} · path only`;
       fileRow.append(this.el('span', 'sir-scribbles-context-label', 'Note'), path,
         this.iconButton('x', 'Remove file', () => this.model.removeFile(), 'sir-scribbles-context-remove'));
       fileCard.append(fileRow);
@@ -607,7 +608,6 @@ export class ChatPanel {
     details.open = false;
     const summary = this.el('summary', 'sir-scribbles-selection-header');
     const path = this.el('span', 'sir-scribbles-context-path', `${selection.path}:${selection.from}–${selection.to}`);
-    path.title = `${selection.path} · lines ${selection.from}–${selection.to} · click to preview`;
     summary.append(this.el('span', 'sir-scribbles-context-label', 'Selection'), path,
       this.iconButton('x', 'Remove selection', event => { event.preventDefault(); this.model.removeSelection(); }, 'sir-scribbles-context-remove'));
     details.append(summary, this.el('pre', 'sir-scribbles-selection-text', selection.text));
@@ -627,8 +627,7 @@ export class ChatPanel {
     const list = this.attachmentList(attachments, item => this.model.removeAttachment(item));
     if (reading) {
       const pending = this.el('li', 'sir-scribbles-attachment is-image is-pending');
-      pending.setAttribute('aria-label', 'Reading attached files');
-      pending.title = 'Reading attached files…';
+      pending.append(this.el('span', 'sir-scribbles-sr-only', 'Reading attached files'));
       list.append(pending);
     }
     this.attachmentArea.append(list);
@@ -640,7 +639,6 @@ export class ChatPanel {
     const list = this.el('ul', 'sir-scribbles-attachment-list');
     for (const item of attachments) {
       const chip = this.el('li', `sir-scribbles-attachment is-${item.kind}`);
-      chip.title = `${item.name} · ${formatBytes(item.size)}`;
       if (item.kind === 'image' && item.preview) {
         const thumb = this.el('img', 'sir-scribbles-attachment-thumb');
         thumb.src = item.preview;
@@ -649,7 +647,7 @@ export class ChatPanel {
       } else {
         const icon = this.el('span', 'sir-scribbles-attachment-icon');
         if (this.actions.setIcon) this.actions.setIcon(icon, item.kind === 'image' ? 'image' : 'file-text');
-        if (item.kind === 'image') icon.setAttribute('aria-label', item.name);
+        if (item.kind === 'image') icon.append(this.el('span', 'sir-scribbles-sr-only', item.name));
         chip.append(icon);
       }
       if (item.kind === 'text') {
@@ -673,41 +671,90 @@ export class ChatPanel {
     this.permissionArea.replaceChildren();
     this.permissionArea.hidden = !card;
     if (!card) return;
-    this.permissionArea.append(this.el('p', 'sir-scribbles-eyebrow', queued ? `Approval needed · ${queued} more queued` : 'Approval needed'),
-      this.el('h3', '', card.params.toolCall.title || `Tool ${card.params.toolCall.toolCallId}`),
-      this.el('p', 'sir-scribbles-caption', `Kind: ${card.params.toolCall.kind || 'Not supplied'} · Request ${card.id}`));
-    if (card.params.toolCall.rawInput == null) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Tool arguments were not supplied. Review the available details before deciding.'));
-    if (!card.params.toolCall.locations?.length) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Affected paths not supplied.'));
-    if (!card.params._meta?.kiro?.consent) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', 'Working-directory / consent context not supplied.'));
+    const toolCall = card.params.toolCall;
+    const action = describeApproval(toolCall, this.model.cwd);
+    const identity = this.model.session?.identity;
+    const agent = (typeof identity?.title === 'string' && identity.title.trim()) || 'The agent';
+
+    const eyebrow = this.el('p', 'sir-scribbles-eyebrow', 'Approval needed');
+    if (queued) eyebrow.append(this.el('span', 'sir-scribbles-queued', `${queued} more waiting`));
+    const header = this.el('div', 'sir-scribbles-approval-header');
+    const icon = this.el('span', 'sir-scribbles-approval-icon');
+    if (this.actions.setIcon) this.actions.setIcon(icon, action.icon);
+    const heading = this.el('div', 'sir-scribbles-approval-heading');
+    heading.append(this.el('h3', '', action.heading), this.el('p', 'sir-scribbles-approval-sentence', `${agent} ${action.sentence}`));
+    if (action.detail) heading.append(this.el('p', 'sir-scribbles-approval-detail', action.detail));
+    header.append(icon, heading);
+    this.permissionArea.append(eyebrow, header);
+
+    if (action.paths.length) {
+      const list = this.el('ul', 'sir-scribbles-approval-paths');
+      for (const path of action.paths) {
+        const item = this.el('li', path.outside ? 'is-outside' : '');
+        item.append(this.el('code', '', path.label));
+        if (path.outside) item.append(this.el('span', 'sir-scribbles-approval-badge', 'Outside vault'));
+        list.append(item);
+      }
+      this.permissionArea.append(list);
+    }
+    for (const block of action.previews) {
+      const section = this.el('div', 'sir-scribbles-approval-preview');
+      const lines = block.lines > 1 ? ` · ${block.lines} lines` : '';
+      section.append(this.el('p', 'sir-scribbles-approval-label', `${block.label}${lines}`),
+        this.el('pre', 'sir-scribbles-approval-code', block.text));
+      if (block.truncated) section.append(this.el('p', 'sir-scribbles-caption', 'Shortened here. The full text is in Technical details.'));
+      this.permissionArea.append(section);
+    }
+    if (action.cwd) this.permissionArea.append(this.el('p', 'sir-scribbles-caption', `Runs in ${action.cwd.label}`));
+    if (action.vague) this.permissionArea.append(this.el('p', 'sir-scribbles-approval-warning', 'The agent did not say exactly what this will do. Check Technical details before allowing it.'));
     if (card.unrecognized?.length) this.permissionArea.append(this.el('p', 'sir-scribbles-caption',
-      `Unrecognized approval metadata: ${card.unrecognized.join(', ')}. It is shown in the details below; your choice still applies once only.`));
+      `This request has details Sir Scribbles does not recognize (${card.unrecognized.join(', ')}), so only one-time choices are offered.`));
+
+    // One-time choices first; saved rules on a quieter row with what they cover.
+    const decisions = this.el('div', 'sir-scribbles-decisions');
+    const once = card.options.filter(option => !option.kind.endsWith('_always'));
+    const always = card.options.filter(option => option.kind.endsWith('_always'));
+    const counts = new Map();
+    for (const option of card.options) counts.set(option.kind, (counts.get(option.kind) ?? 0) + 1);
+    const labelOf = option => {
+      const base = option.kind === 'allow_once' ? (always.length ? 'Allow once' : 'Allow')
+        : option.kind === 'reject_once' ? (always.length ? 'Deny once' : 'Deny') : DECISIONS[option.kind];
+      // Several choices of one kind are told apart by the agent's own names.
+      return counts.get(option.kind) > 1 ? `${base} · ${option.name}` : base;
+    };
+    const row = (options, className) => {
+      const container = this.el('div', `sir-scribbles-decision-row ${className}`);
+      for (const option of options) {
+        const button = this.button(labelOf(option), () => {
+          for (const child of decisions.querySelectorAll('button')) child.disabled = true;
+          this.model.decide(card, option.optionId);
+          this.renderPermission();
+        }, option.kind === 'allow_once' ? 'mod-cta' : '');
+        button.disabled = this.approvalDelay > 0;
+        container.append(button);
+      }
+      return container;
+    };
+    decisions.append(row(once, 'is-once'));
+    if (always.length) {
+      decisions.append(row(always, 'is-always'));
+      if (card.rule) {
+        // Name what the rule covers unless it is the path shown above.
+        const covered = describePath(card.rule.resource, this.model.cwd).label;
+        const rule = this.el('p', 'sir-scribbles-caption sir-scribbles-rule');
+        if (action.paths.length === 1 && action.paths[0].label === covered) rule.append('Always remembers this choice for this file in every chat in this vault.');
+        else rule.append('Always remembers this choice for ', this.el('code', '', covered), ' in every chat in this vault. For a folder, that includes everything inside it.');
+        decisions.append(rule);
+      }
+    }
     const details = this.el('details', 'sir-scribbles-permission-details');
-    details.open = true;
     // Compact JSON preserves exact argument boundaries while avoiding a large
     // whitespace expansion for deep agent-supplied structures.
-    details.append(this.el('summary', '', 'Action details'), this.el('pre', 'sir-scribbles-permission-input', JSON.stringify(card.request ? { request: card.request, resolvedToolCall: card.params.toolCall } : card.params)));
+    details.append(this.el('summary', '', 'Technical details'), this.el('pre', 'sir-scribbles-permission-input', JSON.stringify(card.request ? { request: card.request, resolvedToolCall: toolCall } : card.params)));
     this.permissionArea.append(details);
-    if (card.rule) {
-      const rule = this.el('p', 'sir-scribbles-caption sir-scribbles-rule', 'Always choices ask the agent to save a rule for this vault only: ');
-      rule.append(this.el('code', '', `${card.rule.capability} · ${card.rule.resource}`),
-        '. If that is a folder, the rule also covers everything inside it. The agent then stops asking for matching actions in every chat, and keeps the rule outside the vault, in its own settings.');
-      this.permissionArea.append(rule);
-    }
-    const decisions = this.el('div', 'sir-scribbles-decisions');
-    for (const option of card.options) {
-      // The agent's own name is kept unless it only repeats the label.
-      const label = DECISIONS[option.kind];
-      const button = this.button(option.name.trim().toLowerCase() === label.toLowerCase() ? label : `${label} · ${option.name}`, () => {
-        for (const child of decisions.children) child.disabled = true;
-        this.model.decide(card, option.optionId);
-        this.renderPermission();
-      }, option.kind === 'allow_once' ? 'mod-cta' : '');
-      button.disabled = this.approvalDelay > 0;
-      decisions.append(button);
-    }
     this.permissionArea.append(decisions);
     if (this.approvalDelay > 0) this.armTimer = setTimeout(() => {
-      for (const child of decisions.children) child.disabled = false;
+      for (const child of decisions.querySelectorAll('button')) child.disabled = false;
     }, this.approvalDelay);
   }
 

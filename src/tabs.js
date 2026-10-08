@@ -86,7 +86,6 @@ export class TabbedPanel {
     container.classList.add('sir-scribbles-root');
     this.strip = this.el('div', 'sir-scribbles-tabs');
     this.strip.setAttribute('role', 'tablist');
-    this.strip.setAttribute('aria-label', 'Chats');
     this.add = this.iconButton('plus', 'New chat', () => {
       const chat = this.tabs.add();
       if (chat) this.render();
@@ -106,9 +105,12 @@ export class TabbedPanel {
   iconButton(icon, label, action, className) {
     const button = this.el('button', `clickable-icon ${className}`);
     button.type = 'button';
-    button.setAttribute('aria-label', label);
-    if (this.actions.setIcon) this.actions.setIcon(button, icon);
-    else button.textContent = label;
+    // Hidden text, not aria-label: Obsidian turns aria-labels into tooltips.
+    if (this.actions.setIcon) {
+      this.actions.setIcon(button, icon);
+      const name = this.el('span', 'sir-scribbles-sr-only', label);
+      button.append(name);
+    } else button.textContent = label;
     button.addEventListener('click', action);
     return button;
   }
@@ -161,7 +163,6 @@ export class TabbedPanel {
       const active = chat === this.tabs.active;
       const title = chat.title || 'New chat';
       entry.title.textContent = title;
-      entry.select.title = title;
       entry.status.dataset.state = chat.state;
       entry.select.setAttribute('aria-selected', String(active));
       entry.tab.classList.toggle('is-active', active);
@@ -171,7 +172,6 @@ export class TabbedPanel {
     // Re-appending keeps the strip in chat order with the add button last.
     this.strip.append(...this.tabs.chats.map(chat => this.entries.get(chat).tab), this.add);
     this.add.disabled = this.tabs.full;
-    this.add.title = this.tabs.full ? `Up to ${this.tabs.limit} chats at once. Close one to start another.` : 'New chat';
   }
   // Re-render every chat, for example after the executable path changed.
   renderAll() {

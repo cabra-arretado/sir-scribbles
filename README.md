@@ -89,15 +89,19 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
    to this vault) open through Obsidian when clicked. Headings and block references
    are supported. Cmd/Ctrl+click opens a new tab. Relative paths use the note
    attached or active when the prompt was sent, even if you switch notes later.
-5. Review the complete JSON action details before choosing an offered option.
+5. Review the approval card before choosing. It says in plain words what Kiro
+   wants to do (for example "Kiro wants to write to a file in this vault"), lists
+   the affected paths relative to the vault, marks any **Outside vault**, and
+   previews the content to write, the text to replace, or the command to run.
+   The full request stays under **Technical details**.
    **Allow once** and **Deny once** apply to this request only. When Kiro offers
-   **Always allow** or **Always deny**, the card names what the rule covers
-   (for example `shell · npm run test`). Choosing it asks Kiro to save that rule
+   **Always allow** or **Always deny**, they appear on a second row, and the card
+   says what the rule covers. Choosing one asks Kiro to save that rule
    for this vault only, in Kiro's own workspace settings outside the vault, and
    Kiro stops asking for matching actions in every chat. Kiro reads rules as
    patterns, so a folder rule also covers everything inside it. The plugin never
    widens the rule or saves it for all projects. Always choices are hidden when
-   Kiro does not mark the request as persistable, when its workspace is not this
+   Kiro marks the request as not persistable, when its workspace is not this
    vault, when the request carries metadata the plugin does not recognize, or
    when the resource contains pattern characters (`* ? [ ] { } \`), which would
    make the saved rule wider than the request. To edit or

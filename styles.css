@@ -140,8 +140,47 @@
 .sir-scribbles-permission-details { margin-top: var(--size-4-2); }
 .sir-scribbles-permission-details summary { font-size: var(--font-ui-smaller); color: var(--text-muted); cursor: var(--cursor); }
 .sir-scribbles-permission-input { font-family: var(--font-monospace); font-size: var(--font-ui-smaller); line-height: var(--line-height-normal); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; user-select: text; background: var(--code-background); border-radius: var(--radius-m); padding: var(--size-4-2); margin: var(--size-4-1) 0 0; }
-.sir-scribbles-decisions { display: flex; flex-wrap: wrap; gap: var(--size-4-2); margin-top: var(--size-4-3); }
-.sir-scribbles-decisions button { flex: 1 1 auto; }
+/* The card reads top to bottom: what, where, what changes, then the choice. */
+.sir-scribbles-eyebrow .sir-scribbles-queued { margin-left: auto; font-weight: normal; color: var(--text-faint); }
+.sir-scribbles-approval-header { display: flex; align-items: flex-start; gap: var(--size-4-3); margin-top: var(--size-4-2); }
+.sir-scribbles-approval-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: var(--radius-m); color: var(--text-accent); background: var(--background-modifier-hover); --icon-size: var(--icon-s);
+}
+.sir-scribbles-approval-heading { min-width: 0; }
+.sir-scribbles-approval-sentence { margin: var(--size-2-1) 0 0; color: var(--text-muted); line-height: var(--line-height-tight); }
+.sir-scribbles-approval-detail { margin: var(--size-2-2) 0 0; color: var(--text-faint); font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
+.sir-scribbles-approval-paths { list-style: none; margin: var(--size-4-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--size-2-2); }
+.sir-scribbles-approval-paths li { display: flex; align-items: center; gap: var(--size-4-2); min-width: 0; }
+.sir-scribbles-approval-paths code {
+  min-width: 0; overflow-wrap: anywhere; font-size: var(--font-ui-smaller); color: var(--text-normal);
+  background: var(--background-modifier-hover); border-radius: var(--radius-s); padding: var(--size-2-1) var(--size-2-3);
+}
+.sir-scribbles-approval-badge {
+  flex-shrink: 0; font-size: calc(var(--font-ui-smaller) - 1px); font-weight: var(--font-semibold); color: var(--text-error);
+  background: rgba(var(--color-red-rgb), .12); border-radius: var(--radius-s); padding: 1px var(--size-2-3);
+}
+.sir-scribbles-approval-preview { margin-top: var(--size-4-3); }
+.sir-scribbles-approval-label { margin: 0 0 var(--size-2-2); font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); color: var(--text-muted); }
+.sir-scribbles-approval-code {
+  margin: 0; max-height: 132px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
+  font-family: var(--font-monospace); font-size: var(--font-ui-smaller); line-height: var(--line-height-normal);
+  background: var(--code-background); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: var(--size-4-2);
+}
+.sir-scribbles-approval-warning { margin: var(--size-4-3) 0 0; padding: var(--size-4-2); border-radius: var(--radius-m); color: var(--text-normal); background: rgba(var(--color-red-rgb), .1); font-size: var(--font-ui-smaller); }
+/* The choice stays in view while a long preview scrolls above it. */
+.sir-scribbles-decisions {
+  position: sticky; bottom: calc(-1 * var(--size-4-3)); z-index: 1; display: flex; flex-direction: column; gap: var(--size-4-2);
+  margin: var(--size-4-3) calc(-1 * var(--size-4-3)) 0; padding: var(--size-4-2) var(--size-4-3) var(--size-4-3);
+  background: var(--background-secondary); border-top: 1px solid var(--background-modifier-border);
+}
+.sir-scribbles-decision-row { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
+.sir-scribbles-decision-row button { flex: 1 1 0; min-width: 0; }
+/* Saved rules are a deliberate step: quieter, smaller buttons. */
+.sir-scribbles .sir-scribbles-decision-row.is-always button { height: 26px; font-size: var(--font-ui-smaller); color: var(--text-muted); background: transparent; box-shadow: none; border: 1px solid var(--background-modifier-border); }
+.sir-scribbles .sir-scribbles-decision-row.is-always button:hover:not(:disabled) { color: var(--text-normal); background: var(--background-modifier-hover); }
+.sir-scribbles-decisions .sir-scribbles-rule { margin: 0; }
+.sir-scribbles-rule code { font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
 
 /* Composer: one field with context on top and actions underneath. */
 /* The bottom inset clears Obsidian's status bar where it overlaps the sidebar. */
