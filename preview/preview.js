@@ -62,6 +62,7 @@ const PAST = [
   { sessionId: 'a', title: 'Launch announcement options', updatedAt: Date.now() - 36e5 * 5 },
   { sessionId: 'b', title: 'Summarize research interviews', updatedAt: Date.now() - 864e5 * 3 },
   { sessionId: 'c', title: '', updatedAt: Date.now() - 864e5 * 20 },
+  ...Array.from({ length: 17 }, (_, i) => ({ sessionId: `old-${i}`, title: `Older chat ${i + 1}`, updatedAt: Date.now() - 864e5 * (25 + i * 4) })),
 ];
 const models = current => [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
   { value: 'auto', name: 'Auto', description: 'Picks a model for each task' },

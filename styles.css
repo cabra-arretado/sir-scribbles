@@ -63,9 +63,9 @@
 .sir-scribbles-start-area .sir-scribbles-primary, .sir-scribbles-start-area .sir-scribbles-secondary { width: 100%; }
 
 /* Past chats: a plain list, like Obsidian's file suggestions. */
-.sir-scribbles-history { padding: var(--size-4-4) var(--size-4-3); }
+.sir-scribbles-history { width: 100%; max-width: 320px; text-align: left; margin-top: var(--size-4-6); }
 .sir-scribbles-history h4 { font-size: var(--font-ui-small); font-weight: var(--font-semibold); margin: 0 0 var(--size-4-2); }
-.sir-scribbles-history-list { list-style: none; margin: 0 0 var(--size-4-3); padding: 0; }
+.sir-scribbles-history-list { list-style: none; margin: 0 0 var(--size-4-3); padding: 0; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }
 .sir-scribbles .sir-scribbles-history-item { display: flex; align-items: baseline; gap: var(--size-4-2); width: 100%; height: auto; padding: var(--size-4-1) var(--size-4-2); background: transparent; box-shadow: none; color: var(--text-normal); text-align: left; border-radius: var(--radius-s); }
 .sir-scribbles .sir-scribbles-history-item:hover { background: var(--background-modifier-hover); }
 .sir-scribbles-history-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

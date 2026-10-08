@@ -436,7 +436,9 @@ test('past chats list opens the chosen chat or a new one; replayed rows have no 
   model.state = 'connected';
   model.history = { pending: true };
   panel.render();
-  assert.equal(panel.empty.hidden, true);
+  assert.equal(panel.empty.hidden, false);
+  assert.equal(panel.startArea.hidden, true);
+  assert.ok(panel.empty.contains(panel.historyArea));
   assert.match(panel.historyArea.textContent, /Asking the agent/);
   assert.equal(root.querySelector('.sir-scribbles-history .sir-scribbles-secondary').disabled, true);
   model.history = { entries: [{ sessionId: 'old', title: '<b>Older</b>', updatedAt: Date.UTC(2026, 0, 2) }, { sessionId: 'x', title: '', updatedAt: null }] };

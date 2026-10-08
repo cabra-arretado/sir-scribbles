@@ -106,6 +106,10 @@ export class ChatPanel {
     directory.title = this.model.cwd;
     this.empty.append(emptyMascot, this.el('h3', '', 'A little room to think.'),
       this.el('p', 'sir-scribbles-lede', 'Ask about your work. Bring a selection from a note when it helps.'), directory);
+    // Past chats sit under the mascot; the list scrolls on its own.
+    this.historyArea = this.el('section', 'sir-scribbles-history');
+    this.historyArea.setAttribute('aria-label', 'Past chats');
+    this.empty.append(this.historyArea);
     this.startArea = this.el('section', 'sir-scribbles-start-area');
     this.startArea.append(this.el('h4', '', 'Connect your local agent'));
     this.path = this.el('input', 'sir-scribbles-path');
@@ -127,9 +131,7 @@ export class ChatPanel {
     this.empty.append(this.startArea,
       this.el('p', 'sir-scribbles-footnote', 'The agent may run actions already allowed by its own configuration without asking here. The vault directory is context, not a sandbox.'),
       this.el('p', 'sir-scribbles-footnote', 'Developer preview · Kiro CLI (V3) is currently the only supported agent'));
-    this.historyArea = this.el('section', 'sir-scribbles-history');
-    this.historyArea.setAttribute('aria-label', 'Past chats');
-    this.transcript.append(this.historyArea, this.empty);
+    this.transcript.append(this.empty);
     this.container.append(this.transcript);
 
     this.permissionArea = this.el('section', 'sir-scribbles-permission-area');
@@ -253,7 +255,7 @@ export class ChatPanel {
     if (this.lastPath !== path && this.document.activeElement !== this.path) this.path.value = path;
     this.lastPath = path;
     this.startArea.hidden = model.state !== 'not-started';
-    this.empty.hidden = model.messages.length > 0 || model.state === 'connected' || model.loading;
+    this.empty.hidden = model.messages.length > 0 || model.loading;
     if (this.composer.value !== model.draft) { this.composer.value = model.draft; this.fitComposer(); }
     this.renderControls();
     this.renderMessages();
