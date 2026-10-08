@@ -86,7 +86,7 @@ export class TabbedPanel {
     container.classList.add('sir-scribbles-root');
     this.strip = this.el('div', 'sir-scribbles-tabs');
     this.strip.setAttribute('role', 'tablist');
-    this.strip.setAttribute('aria-label', 'Chats');
+    // No aria-label: Obsidian would show it as a tooltip over the whole strip.
     this.add = this.iconButton('plus', 'New chat', () => {
       const chat = this.tabs.add();
       if (chat) this.render();

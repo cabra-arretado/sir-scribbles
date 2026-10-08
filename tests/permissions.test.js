@@ -21,7 +21,7 @@ test('offers only actual one-time IDs and preserves full request', () => {
   assert.deepEqual(params, original);
 });
 
-test('always choices need persistable consent for this workspace and a named resource', () => {
+test('always choices need consent for this workspace and a named resource', () => {
   const persistable = () => ({ ...request(), _meta: { kiro: { consent: { capability: 'shell', resource: 'npm test', workspaceRoot: '/fixture', persistableConsent: true } } } });
   const inspected = inspectPermission(persistable(), '/fixture');
   assert.deepEqual(inspected.options.map(option => option.optionId), ['one', 'all', 'no']);
@@ -42,6 +42,20 @@ test('always choices need persistable consent for this workspace and a named res
     assert.deepEqual(result.options.map(option => option.optionId), ['one', 'no']);
   }
   assert.equal(inspectPermission(persistable()).rule, null, 'no workspace, no rule');
+});
+
+test('a real Kiro V3 request offers its always choices', () => {
+  // As Kiro sends it: no persistableConsent, plus descriptive fields.
+  const params = { ...request(), _meta: { kiro: { toolId: 'fs_write', consentRound: 1,
+    consent: { capability: 'fs_write', resource: 'TaskNotes/Views/kanban-native.base', askType: 'implicit', workspaceRoot: '/fixture' } } } };
+  const inspected = inspectPermission(params, '/fixture');
+  assert.deepEqual(inspected.unrecognized, []);
+  assert.deepEqual(inspected.options.map(option => option.optionId), ['one', 'all', 'no']);
+  assert.deepEqual(inspected.rule, { capability: 'fs_write', resource: 'TaskNotes/Views/kanban-native.base', workspaceRoot: '/fixture' });
+  // Wrong types are still unrecognized and keep choices one-time.
+  params._meta.kiro.consentRound = '1';
+  assert.deepEqual(inspectPermission(params, '/fixture').unrecognized, ['_meta.kiro.consentRound']);
+  assert.equal(inspectPermission(params, '/fixture').rule, null);
 });
 
 test('partial tool details are supported but a tool ID is required', () => {

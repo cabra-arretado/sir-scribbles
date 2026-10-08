@@ -82,6 +82,8 @@ const ICONS = {
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
 };
@@ -111,6 +113,12 @@ document.getElementById('conversation').onclick = () => {
 document.getElementById('approval').onclick = () => {
   model.newChat(); model.start(); model.state = 'waiting-for-approval';
   model.messages = [{ role: 'user', text: 'Save that principle to a new note.' }, { role: 'agent', text: 'I can create a short note. Please review the exact action below.' }];
-  model.session.permissions.set(1, { id: 1, params: { sessionId: 'preview', toolCall: { toolCallId: 'write-1', title: 'Create Product principle.md', kind: 'edit', locations: [{ path: '/Users/you/Notes/Studio/Product principle.md' }], rawInput: { path: '/Users/you/Notes/Studio/Product principle.md', contents: 'Keep the user in the loop.\nStart deliberately. Share context explicitly. Review every action.' } }, _meta: { kiro: { consent: { capability: 'fs_write', workspaceRoot: model.cwd } } } }, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'always-allow', name: 'Always allow', kind: 'allow_always' }, { optionId: 'deny', name: 'Deny', kind: 'reject_once' }, { optionId: 'always-deny', name: 'Always deny', kind: 'reject_always' }], rule: { capability: 'fs_write', resource: '/Users/you/Notes/Studio/Product principle.md', workspaceRoot: model.cwd } });
+  // The shape Kiro V3 sends for a file write, with this fixture's vault.
+  const file = `${model.cwd}/TaskNotes/Views/kanban-native.base`;
+  const options = [{ optionId: 'accept', name: 'Allow', kind: 'allow_once' }, { optionId: 'always-accept', name: 'Always allow', kind: 'allow_always' }, { optionId: 'reject', name: 'Deny', kind: 'reject_once' }, { optionId: 'always-reject', name: 'Always deny', kind: 'reject_always' }];
+  const meta = { kiro: { toolId: 'fs_write', consent: { capability: 'fs_write', resource: 'TaskNotes/Views/kanban-native.base', askType: 'implicit', workspaceRoot: model.cwd }, consentRound: 1 } };
+  const toolCall = { sessionUpdate: 'tool_call_update', toolCallId: 'toolu_preview', title: 'Write File', kind: 'edit', status: 'pending', rawInput: { path: file, text: 'filters:\n  and:\n    - file.hasTag("task")\nviews:\n  - type: kanban\n    name: Kanban Board\n    groupBy: status\n    order:\n      - priority\n      - due\n      - projects\n' }, locations: [{ path: file }] };
+  model.session.identity = { name: 'kiro', title: 'Kiro' };
+  model.session.permissions.set(10, { id: 10, request: { sessionId: 'preview', toolCall: { toolCallId: 'toolu_preview', status: 'pending', title: 'Write File' }, options, _meta: meta }, params: { sessionId: 'preview', toolCall, options, _meta: meta }, options, unrecognized: [], rule: { capability: 'fs_write', resource: 'TaskNotes/Views/kanban-native.base', workspaceRoot: model.cwd } });
   model.changed();
 };

@@ -3,7 +3,12 @@ import { isRecord } from './limits.js';
 const knownKinds = new Set(['allow_once', 'reject_once', 'allow_always', 'reject_always']);
 // Wildcards, globs, brace expansion and possible escapes in Kiro rule patterns.
 const PATTERN = /[*?[\]{}\\]/;
-const consentStrings = ['capability', 'resource', 'triggeringResource', 'workspaceRoot'];
+// askType ("implicit" or "explicit") says why Kiro asked; it does not change
+// what a saved rule covers.
+const consentStrings = ['capability', 'resource', 'triggeringResource', 'workspaceRoot', 'askType'];
+// Descriptive Kiro fields beside consent: the tool's name and which approval
+// round this is for a multi-resource action.
+const kiroFields = { consent: null, mcpTool: null, toolId: 'string', consentRound: 'number' };
 
 // Kiro documents consent metadata as open-ended and asks clients to preserve
 // unknown fields. List it for the approval card instead of cancelling the
@@ -16,7 +21,8 @@ function unrecognizedMetadata(meta) {
   const kiro = meta.kiro;
   if (kiro === undefined) return found;
   if (!isRecord(kiro)) return [...found, '_meta.kiro'];
-  found.push(...Object.keys(kiro).filter(key => !['consent', 'mcpTool'].includes(key)).map(key => `_meta.kiro.${key}`));
+  found.push(...Object.keys(kiro).filter(key => !Object.hasOwn(kiroFields, key) ||
+    (kiroFields[key] !== null && typeof kiro[key] !== kiroFields[key])).map(key => `_meta.kiro.${key}`));
   const consent = kiro.consent;
   if (consent !== undefined && !isRecord(consent)) found.push('_meta.kiro.consent');
   else if (consent !== undefined) {
@@ -34,9 +40,11 @@ function unrecognizedMetadata(meta) {
 // must not suppress the user's decision; preserve metadata and offered IDs.
 // Option semantics stay strict: they define what the user's click means.
 //
-// "Always" choices are offered only when the agent marks the consent as
-// persistable for this exact workspace and names what it covers. The client
-// then answers with a workspace-scoped rule for that resource. Kiro reads
+// The agent's options are authoritative (Kiro's ACP guide), so "Always"
+// choices it offers are shown unless it marks the consent as not
+// persistable. They also need consent for this exact workspace that names
+// what it covers: the client answers with a workspace-scoped rule for that
+// resource. Kiro reads
 // rule resources as patterns, so a resource containing pattern syntax would
 // save a wider rule than the one shown; those get one-time choices only.
 export function inspectPermission(params, workspaceRoot = null) {
@@ -65,7 +73,7 @@ export function inspectPermission(params, workspaceRoot = null) {
   const once = params.options.filter(option => ['allow_once', 'reject_once'].includes(option.kind));
   if (!once.length) return { supported: false, reason: 'NO_ONE_TIME_OPTIONS' };
   const consent = params._meta?.kiro?.consent;
-  const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent === true &&
+  const persistable = !unrecognized.length && isRecord(consent) && consent.persistableConsent !== false &&
     typeof consent.capability === 'string' && consent.capability.length > 0 &&
     typeof consent.resource === 'string' && consent.resource.length > 0 && !PATTERN.test(consent.resource) &&
     typeof workspaceRoot === 'string' && consent.workspaceRoot === workspaceRoot;
