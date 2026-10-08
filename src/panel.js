@@ -3,6 +3,10 @@ import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
 import { displayPrompt } from './display.js';
 
+// A card can appear, or replace one just decided, under the pointer. Its
+// buttons wait this long so a double-click never approves an unread action.
+const APPROVAL_DELAY_MS = 500;
+
 const DECISIONS = { allow_once: 'Allow once', reject_once: 'Deny once', allow_always: 'Always allow', reject_always: 'Always deny' };
 
 const STATES = {
@@ -13,13 +17,15 @@ const STATES = {
 // DOM rendering only. Bot Markdown uses a restricted token renderer; note and
 // tool content stays plain text. No raw HTML or automatic resource loading.
 export class ChatPanel {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, approvalDelay = APPROVAL_DELAY_MS }) {
     this.container = container;
     this.model = controller;
     this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon };
     this.document = container.ownerDocument;
     this.rows = new Map();
     this.timer = null;
+    this.approvalDelay = approvalDelay;
+    this.armTimer = null;
     this.disposed = false;
     this.lastCard = null;
     this.lastQueued = -1;
@@ -512,6 +518,7 @@ export class ChatPanel {
     if (card === this.lastCard && queued === this.lastQueued) return;
     this.lastCard = card;
     this.lastQueued = queued;
+    clearTimeout(this.armTimer);
     this.permissionArea.replaceChildren();
     this.permissionArea.hidden = !card;
     if (!card) return;
@@ -544,14 +551,19 @@ export class ChatPanel {
         this.model.decide(card, option.optionId);
         this.renderPermission();
       }, option.kind === 'allow_once' ? 'mod-cta' : '');
+      button.disabled = this.approvalDelay > 0;
       decisions.append(button);
     }
     this.permissionArea.append(decisions);
+    if (this.approvalDelay > 0) this.armTimer = setTimeout(() => {
+      for (const child of decisions.children) child.disabled = false;
+    }, this.approvalDelay);
   }
 
   dispose() {
     this.disposed = true;
     clearTimeout(this.timer);
+    clearTimeout(this.armTimer);
     if (this.frame) this.document.defaultView.cancelAnimationFrame?.(this.frame);
     this.streaming.clear();
     this.model.off('change', this.listener);
