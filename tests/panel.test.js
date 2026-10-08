@@ -431,6 +431,44 @@ test('model picker appears only when the agent offers models and follows its sta
   assert.equal(picker.disabled, true);
 });
 
+test('effort picker appears only when the model offers more than one level', async t => {
+  const { model, root, dom } = create(t);
+  const picker = root.querySelector('.sir-scribbles-effort');
+  const chosen = [];
+  model.session = { permissions: new Map(), setConfigOption: async (id, value) => { chosen.push([id, value]); } };
+  model.state = 'ready';
+  const offer = values => {
+    model.configOptions = [
+      { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'opus', options: [{ value: 'opus', name: 'Opus' }] },
+      ...values ? [{ id: 'effortLevel', name: 'Effort', type: 'select', currentValue: 'high', options: values.map(value => ({ value, name: value })) }] : [],
+    ];
+    model.changed();
+  };
+  offer(null);
+  await tick();
+  assert.equal(picker.hidden, true);
+  offer(['high']);
+  await tick();
+  assert.equal(picker.hidden, true);
+  offer(['low', 'high', 'max']);
+  await tick();
+  assert.equal(picker.hidden, false);
+  assert.equal(picker.value, 'high');
+  assert.equal(picker.querySelectorAll('option').length, 3);
+  assert.equal(root.querySelector(`label[for="${picker.id}"]`).textContent, 'Effort');
+  picker.value = 'max';
+  picker.dispatchEvent(new dom.window.Event('change'));
+  await tick();
+  assert.deepEqual(chosen, [['effortLevel', 'max']]);
+  model.state = 'working';
+  model.changed();
+  await tick();
+  assert.equal(picker.disabled, true);
+  offer(null);
+  await tick();
+  assert.equal(picker.hidden, true);
+});
+
 test('past chats list opens the chosen chat or a new one; replayed rows have no time', t => {
   const { model, panel, root } = create(t);
   const opened = [];

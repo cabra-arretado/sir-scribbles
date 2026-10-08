@@ -55,7 +55,8 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
 2. Review the displayed vault directory. With a saved executable, sending your
    first prompt starts ACP and sends after initialization succeeds, using the
    agent's default model. To choose another model, click **Start agent** first and
-   pick it from the composer. Until you send, that new chat also lists this vault's
+   pick it from the composer; when the model offers more than one reasoning effort
+   level, an effort picker appears beside it. Until you send, that new chat also lists this vault's
    past chats; choosing one restarts the agent into it and keeps your draft. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
    To continue an earlier conversation, click **Open a past chat**. This starts

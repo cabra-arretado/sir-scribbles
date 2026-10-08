@@ -203,6 +203,7 @@
   color: var(--text-muted); background-color: transparent; box-shadow: none; text-overflow: ellipsis;
 }
 .sir-scribbles .sir-scribbles-model:hover:not(:disabled) { color: var(--text-normal); background-color: var(--background-modifier-hover); }
+.sir-scribbles .sir-scribbles-effort { max-width: 30%; }
 .sir-scribbles .sir-scribbles-send {
   margin-left: auto; height: 28px; width: 28px; min-height: 0; padding: 0; border-radius: 50%; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center; --icon-size: var(--icon-s); box-shadow: none;

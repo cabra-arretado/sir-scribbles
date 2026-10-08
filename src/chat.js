@@ -29,9 +29,9 @@ export const ERROR_TEXT = {
   TRANSPORT_LOST: 'The agent connection was lost. The previous task outcome may be uncertain. Start a new chat; no prompt will be replayed.',
   PROCESS_EXITED: 'The agent exited. Check its login and installation in your terminal. The previous task outcome may be uncertain.',
   PROCESS_FAILED: 'The agent could not start. Check the executable, its login and installation.',
-  CONFIG_REJECTED: 'The agent did not change the model. It keeps the previous one.',
-  CONFIG_VALUE_UNKNOWN: 'The agent no longer offers that model. Choose another one.',
-  CONFIG_TIMEOUT: 'The agent did not confirm the model change within 15 seconds. It may still apply it; the picker shows the model it last reported.',
+  CONFIG_REJECTED: 'The agent did not change the setting. It keeps the previous one.',
+  CONFIG_VALUE_UNKNOWN: 'The agent no longer offers that choice. Choose another one.',
+  CONFIG_TIMEOUT: 'The agent did not confirm the change within 15 seconds. It may still apply it; the picker shows the choice it last reported.',
   HISTORY_TIMEOUT: 'The agent did not list past chats within 15 seconds. Try again, or start a new chat.',
   HISTORY_NOT_SUPPORTED: 'This agent cannot list past chats. Start a new chat instead.',
   HISTORY_UNAVAILABLE: 'The agent could not list past chats. Try again, or start a new chat.',
@@ -127,6 +127,13 @@ export class ChatController extends EventEmitter {
   hasDraft() { return Boolean(this.draft.trim() || this.selection || this.file || this.attachments.length); }
   // The session's model choice, if the agent offers one as a config option.
   modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
+  // The reasoning effort for the current model. Kiro names it effortLevel;
+  // a single value is only the model's default, so there is nothing to choose.
+  effortOption() {
+    const option = this.configOptions.find(entry => entry.category === 'thought_level') ??
+      this.configOptions.find(entry => entry.id === 'effortLevel');
+    return option && option.options.length > 1 ? option : null;
+  }
   activePermission() { return this.session?.permissions.values().next().value ?? null; }
   setError(code) { this.error = errorText(code); this.changed(); }
 
@@ -381,8 +388,9 @@ export class ChatController extends EventEmitter {
     }
   }
 
-  async setModel(value) {
-    const option = this.modelOption();
+  setModel(value) { return this.setConfig(this.modelOption(), value); }
+  setEffort(value) { return this.setConfig(this.effortOption(), value); }
+  async setConfig(option, value) {
     if (!option || this.state !== 'ready' || this.configPending || this.resetting || this.disposed) return;
     if (value === option.currentValue) return;
     const session = this.session;

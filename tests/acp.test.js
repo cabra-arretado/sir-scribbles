@@ -487,7 +487,7 @@ test('an overflowing model change settles the controller instead of leaving it p
   t.after(() => controller.dispose());
   await controller.start('/fixture-agent');
   await controller.setModel('opus');
-  assert.match(controller.error, /did not confirm the model change/);
+  assert.match(controller.error, /did not confirm the change/);
   assert.equal(controller.configPending, false);
   await controller.setModel('sonnet');
   assert.equal(controller.configPending, false);

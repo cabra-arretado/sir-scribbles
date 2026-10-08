@@ -351,10 +351,32 @@ test('a rejected model change reports an error and keeps the session ready', asy
   session.setConfigOption = async () => { throw new OperationalError('CONFIG_REJECTED'); };
   await controller.start('/fixture');
   await controller.setModel('opus');
-  assert.match(controller.error, /did not change the model/);
+  assert.match(controller.error, /did not change the setting/);
   assert.equal(controller.state, 'ready');
   assert.equal(controller.configPending, false);
   assert.equal(controller.modelOption().currentValue, 'auto');
+});
+
+test('effort choice is found by category or Kiro id, and only offered with more than one level', async () => {
+  const { controller, session } = create();
+  const effort = (extra, values) => ({ name: 'Effort', type: 'select', currentValue: 'high', options: values.map(value => ({ value, name: value })), ...extra });
+  session.configOptions = [...modelOptions('auto'), effort({ id: 'reasoning', category: 'thought_level' }, ['low', 'high'])];
+  const requests = [];
+  session.setConfigOption = async (id, value) => { requests.push([id, value]); };
+  await controller.start('/fixture');
+  assert.equal(controller.effortOption().id, 'reasoning');
+  await controller.setEffort('high');
+  await controller.setEffort('low');
+  assert.deepEqual(requests, [['reasoning', 'low']]);
+  session.emit('config-options', [...modelOptions('auto'), effort({ id: 'effortLevel' }, ['low', 'medium', 'high'])]);
+  assert.equal(controller.effortOption().id, 'effortLevel');
+  // A model with only its default level has nothing to choose.
+  session.emit('config-options', [...modelOptions('opus'), effort({ id: 'effortLevel' }, ['high'])]);
+  assert.equal(controller.effortOption(), null);
+  await controller.setEffort('low');
+  assert.equal(requests.length, 1);
+  session.emit('config-options', modelOptions('opus'));
+  assert.equal(controller.effortOption(), null);
 });
 
 test('browsing lists past chats without opening one; choosing one replays it without local times', async () => {
