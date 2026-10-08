@@ -610,3 +610,63 @@ test('dropping files highlights the composer and attaches them', async t => {
   await tick();
   assert.deepEqual(model.attachments.map(item => item.text), ['text']);
 });
+
+test('Send stays off until a pasted file has been read', async t => {
+  const { dom, model, panel } = create(t);
+  let finish;
+  const slow = { name: 'slow.md', type: 'text/plain', size: 4, arrayBuffer: () => new Promise(resolve => { finish = () => resolve(new TextEncoder().encode('late').buffer); }) };
+  model.setDraft('prompt');
+  const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+  event.clipboardData = { files: [slow] };
+  panel.composer.dispatchEvent(event);
+  panel.render();
+  assert.equal(panel.send.disabled, true);
+  assert.ok(panel.attachmentArea.querySelector('.is-pending'));
+  panel.composer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await model.send('/fixture/kiro');
+  assert.equal(model.session, null);
+  finish();
+  await tick();
+  panel.render();
+  assert.equal(panel.send.disabled, false);
+  assert.equal(panel.attachmentArea.querySelector('.is-pending'), null);
+  assert.deepEqual(model.attachments.map(item => item.text), ['late']);
+});
+
+test('too many files are refused before any is read', async t => {
+  const { dom, model, panel } = create(t);
+  let reads = 0;
+  const file = (name, type) => ({ name, type, size: 1, arrayBuffer: async () => { reads++; return new ArrayBuffer(1); } });
+  const paste = files => {
+    const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { files };
+    panel.composer.dispatchEvent(event);
+  };
+  paste(Array.from({ length: 100 }, (_, index) => file(`${index}.txt`, 'text/plain')));
+  await tick();
+  assert.equal(model.error, 'Attach at most 8 files to one prompt.');
+  paste(Array.from({ length: 5 }, (_, index) => file(`${index}.png`, 'image/png')));
+  await tick();
+  assert.match(model.error, /^Attach at most 4 images/);
+  paste([file('a.txt', 'text/plain'), file('b.zip', 'application/zip')]);
+  await tick();
+  assert.equal(reads, 0);
+  assert.deepEqual(model.attachments, []);
+});
+
+test('replayed image turns show placeholder chips under their bubble', t => {
+  const { model, panel } = create(t);
+  model.loading = true;
+  model.update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Look' } });
+  panel.render();
+  model.update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'image', mimeType: 'image/png', data: 'AAAA' } });
+  model.update({ sessionUpdate: 'user_message_chunk', messageId: 'u2', content: { type: 'image', mimeType: 'image/png', data: 'AAAA' } });
+  model.loading = false;
+  panel.render();
+  const turns = [...panel.transcript.querySelectorAll('.sir-scribbles-user')];
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].querySelector('.sir-scribbles-plain-text').textContent, 'Look');
+  assert.equal(turns[0].querySelectorAll('.sir-scribbles-attachment.is-image').length, 1);
+  assert.equal(turns[1].querySelector('.sir-scribbles-plain-text').hidden, true);
+  assert.equal(turns[1].querySelector('.sir-scribbles-attachment-icon').getAttribute('aria-label'), 'Image');
+});

@@ -61,6 +61,7 @@ export class ChatController extends EventEmitter {
     this.selection = null;
     this.file = null;
     this.attachments = []; // Replaced, never mutated, so a changed draft is detectable.
+    this.reading = 0; // File reads in progress; sending waits for them.
     this.identity = '';
     this.configOptions = [];
     this.configPending = false;
@@ -97,6 +98,14 @@ export class ChatController extends EventEmitter {
     composePrompt(this.draft, this.selection, this.file, undefined, attachments);
     this.attachments = attachments;
     this.error = '';
+    this.changed();
+  }
+  // A paste or drop is still being read: Send stays off so the prompt cannot
+  // leave without the file. Returns the generation the read belongs to.
+  beginRead() { this.reading++; this.changed(); return this.generation; }
+  endRead(generation) {
+    if (generation !== this.generation || this.disposed) return;
+    this.reading = Math.max(0, this.reading - 1);
     this.changed();
   }
   removeAttachment(item) { this.attachments = this.attachments.filter(entry => entry !== item); this.changed(); }
@@ -272,6 +281,16 @@ export class ChatController extends EventEmitter {
       if (last?.role === role && last.messageId === messageId) last.text += text;
       else this.messages.push({ role, text, messageId, timestamp: this.loading ? null : Date.now(), sourcePath: this.turnSourcePath });
       if (role === 'user' && !this.title) this.title = titleOf(text);
+    } else if (role === 'user' && update.content?.type === 'image') {
+      // A replayed image keeps a placeholder chip in its turn, never the image
+      // data, so reopening a chat costs a few bytes per image.
+      if (!this.retainUi(64)) return;
+      const data = update.content.data;
+      const item = { kind: 'image', name: 'Image', size: typeof data === 'string' ? Math.floor(data.length * 3 / 4) : 0, preview: '' };
+      const last = this.messages.at(-1);
+      const messageId = typeof update.messageId === 'string' ? update.messageId : undefined;
+      if (last?.role === 'user' && last.messageId === messageId) last.attachments = [...(last.attachments ?? []), item];
+      else this.messages.push({ role, text: '', attachments: [item], messageId, timestamp: null, sourcePath: this.turnSourcePath });
     } else if (kind === 'session_info_update' && typeof update.title === 'string' && update.title.trim()) {
       this.title = titleOf(update.title);
     } else if (['tool_call', 'tool_call_update'].includes(update.sessionUpdate) && typeof update.toolCallId === 'string') {
@@ -293,7 +312,7 @@ export class ChatController extends EventEmitter {
   }
 
   async send(executable = '') {
-    if (this.resetting || this.disposed || this.configPending || this.history?.pending || !['not-started', 'connected', 'ready'].includes(this.state)) return;
+    if (this.resetting || this.disposed || this.configPending || this.reading || this.history?.pending || !['not-started', 'connected', 'ready'].includes(this.state)) return;
     if (this.state === 'not-started' && !executable) return;
     let prompt;
     try { prompt = composePrompt(this.draft, this.selection, this.file, undefined, this.attachments); }
@@ -432,6 +451,7 @@ export class ChatController extends EventEmitter {
     this.history = null;
     this.loading = false;
     this.recent = null;
+    this.reading = 0;
     this.forceAvailable = false;
     this.resetting = false;
     this.state = 'not-started';

@@ -227,3 +227,7 @@ summary.sir-scribbles-selection-header { cursor: var(--cursor); }
   border-radius: inherit; background: var(--background-modifier-form-field); color: var(--text-accent); font-size: var(--font-ui-small);
   font-weight: var(--font-semibold); pointer-events: none;
 }
+/* A file still being read: a quiet pulsing tile until it is ready. */
+.sir-scribbles-attachment.is-pending { background: var(--background-modifier-hover); border-style: dashed; animation: sir-scribbles-pulse 1.2s ease-in-out infinite; }
+@keyframes sir-scribbles-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .sir-scribbles-attachment.is-pending { animation: none; } }

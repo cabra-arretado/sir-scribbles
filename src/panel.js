@@ -2,7 +2,8 @@ import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
 import { displayPrompt } from './display.js';
-import { ACCEPT, formatBytes, readAttachment } from './attachments.js';
+import { ACCEPT, attachmentKind, checkAttachments, formatBytes, readAttachment } from './attachments.js';
+import { OperationalError } from './limits.js';
 
 // A card can appear, or replace one just decided, under the pointer. Its
 // buttons wait this long so a double-click never approves an unread action.
@@ -266,16 +267,31 @@ export class ChatPanel {
     });
   }
 
-  // Reads every file before adding any, so one refused file leaves the draft
-  // as it was and names the problem.
+  // Refuses what it can before reading anything (type, file and image counts),
+  // then reads in order and checks sizes as they become known. A refused
+  // batch adds nothing to the draft and names the problem.
   async addFiles(files) {
-    const generation = this.model.generation;
+    const model = this.model;
+    const generation = model.generation;
+    const live = () => !this.disposed && !model.resetting && generation === model.generation;
+    let reading = null;
     try {
+      const kinds = files.map(file => attachmentKind(file));
+      if (kinds.includes(null)) throw new OperationalError('FILE_TYPE_UNSUPPORTED');
+      checkAttachments([...model.attachments, ...kinds.map(kind => ({ kind, size: 0 }))]);
+      if (kinds.includes('image') && model.supportsImages?.() === false) throw new OperationalError('IMAGES_NOT_SUPPORTED');
+      reading = model.beginRead?.();
       const items = [];
-      for (const file of files) items.push(await readAttachment(file));
-      if (!this.disposed && !this.model.resetting && generation === this.model.generation) this.model.addAttachments(items);
+      for (const file of files) {
+        items.push(await readAttachment(file));
+        if (!live()) return;
+        checkAttachments([...model.attachments, ...items]);
+      }
+      model.addAttachments(items);
     } catch (error) {
-      if (!this.disposed && generation === this.model.generation) this.model.setError(error.code || 'FILE_UNREADABLE');
+      if (live()) model.setError(error.code || 'FILE_UNREADABLE');
+    } finally {
+      if (reading !== null) model.endRead?.(reading);
     }
   }
 
@@ -287,8 +303,8 @@ export class ChatPanel {
     const model = this.model;
     const canStart = (model.state === 'not-started' && Boolean(this.actions.getPath().trim())) || model.state === 'connected';
     this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending ||
-      Boolean(model.history?.pending) || !(model.draft.trim() || model.selection || model.file || model.attachments?.length);
-    this.send.title = canStart ? 'Start a new chat and send (Enter)' : 'Send (Enter)';
+      Boolean(model.history?.pending) || Boolean(model.reading) || !(model.draft.trim() || model.selection || model.file || model.attachments?.length);
+    this.send.title = model.reading ? 'Reading attached files…' : canStart ? 'Start a new chat and send (Enter)' : 'Send (Enter)';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.browse.disabled = this.start.disabled;
     this.path.disabled = model.state !== 'not-started' || model.resetting;
@@ -454,9 +470,7 @@ export class ChatPanel {
           row = { root, body, summary, label, rendered: '' };
         } else {
           body = this.el('div', message.role === 'agent' ? 'sir-scribbles-markdown' : 'sir-scribbles-plain-text');
-          root.append(label, body);
-          if (message.attachments?.length) root.append(this.attachmentList(message.attachments));
-          root.append(meta);
+          root.append(label, body, meta);
           row = { root, body, label, rendered: '' };
         }
         this.rows.set(message, row);
@@ -464,11 +478,19 @@ export class ChatPanel {
       }
       if (row.summary) row.summary.textContent = `${typeof message.data.title === 'string' ? message.data.title : 'Tool'} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
       if (message.role === 'agent') this.updateReply(row, message);
-      else if (message.text !== row.rendered) {
-        // Attached files show as chips; their text stays out of the bubble.
-        row.body.textContent = message.role === 'user' ? displayPrompt(message.text, { files: !message.attachments?.length }) : message.text;
-        row.body.hidden = !row.body.textContent;
+      else if (message.text !== row.rendered || message.attachments !== row.attachments) {
+        // Files sent from here show as chips, so their text stays out of the
+        // bubble. A replayed turn only has image chips; its text shows in full.
+        const chips = message.attachments?.some(item => item.kind === 'text');
+        row.body.textContent = message.role === 'user' ? displayPrompt(message.text, { files: !chips }) : message.text;
+        row.body.hidden = message.role === 'user' && !row.body.textContent;
         row.rendered = message.text;
+        if (message.attachments !== row.attachments) {
+          row.files?.remove();
+          row.files = message.attachments?.length ? this.attachmentList(message.attachments) : null;
+          if (row.files) row.body.after(row.files);
+          row.attachments = message.attachments;
+        }
       }
     }
     const last = this.model.messages.at(-1);
@@ -594,11 +616,20 @@ export class ChatPanel {
   // Chips for files in the draft, each removable.
   renderAttachments() {
     const attachments = this.model.attachments ?? [];
-    if (attachments === this.lastAttachments) return;
+    const reading = Boolean(this.model.reading);
+    if (attachments === this.lastAttachments && reading === this.lastReading) return;
     this.lastAttachments = attachments;
+    this.lastReading = reading;
     this.attachmentArea.replaceChildren();
-    this.attachmentArea.hidden = !attachments.length;
-    if (attachments.length) this.attachmentArea.append(this.attachmentList(attachments, item => this.model.removeAttachment(item)));
+    this.attachmentArea.hidden = !attachments.length && !reading;
+    const list = this.attachmentList(attachments, item => this.model.removeAttachment(item));
+    if (reading) {
+      const pending = this.el('li', 'sir-scribbles-attachment is-image is-pending');
+      pending.setAttribute('aria-label', 'Reading attached files');
+      pending.title = 'Reading attached files…';
+      list.append(pending);
+    }
+    this.attachmentArea.append(list);
   }
 
   // Images show only a thumbnail drawn locally from the file, with the name

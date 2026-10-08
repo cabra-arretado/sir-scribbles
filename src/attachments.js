@@ -40,13 +40,14 @@ function toBase64(bytes) {
   return btoa(binary);
 }
 
-// Redraws an image at most `edge` pixels on its longest side. Returns null
-// where the host cannot decode or draw images (tests, very old engines).
-async function redraw(file, edge, type, quality) {
+// Draws an image onto a canvas at most `edge` pixels on its longest side.
+// Returns null where the host cannot decode or draw images (tests, very old
+// engines); the original file is then sent as it is.
+async function draw(source, edge) {
   const view = globalThis;
   if (typeof view.createImageBitmap !== 'function' || typeof view.document?.createElement !== 'function') return null;
   let bitmap;
-  try { bitmap = await view.createImageBitmap(file); }
+  try { bitmap = await view.createImageBitmap(source); }
   catch { return null; }
   try {
     const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
@@ -56,9 +57,20 @@ async function redraw(file, edge, type, quality) {
     const context = canvas.getContext('2d');
     if (!context) return null;
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, type, quality));
-    return blob ? { blob, scaled: scale < 1, width: bitmap.width, height: bitmap.height } : null;
+    return { canvas, context, scaled: scale < 1 };
   } finally { bitmap.close?.(); }
+}
+const encode = (canvas, type, quality) => new Promise(resolve => canvas.toBlob(resolve, type, quality));
+
+// JPEG has no alpha channel: encoding a canvas flattens transparent pixels to
+// black, so black lines on a transparent diagram would vanish. Images with any
+// transparency stay PNG. If the pixels cannot be read, assume transparency.
+export function hasTransparency({ canvas, context }) {
+  let data;
+  try { ({ data } = context.getImageData(0, 0, canvas.width, canvas.height)); }
+  catch { return true; }
+  for (let index = 3; index < data.length; index += 4) if (data[index] < 255) return true;
+  return false;
 }
 
 async function readImage(file, name) {
@@ -66,20 +78,25 @@ async function readImage(file, name) {
   let blob = file;
   let mimeType = file.type.toLowerCase();
   // Animated GIFs would lose their frames; send them as they are.
-  if (mimeType !== 'image/gif') {
-    const probe = await redraw(file, MAX_EDGE, mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.9);
-    if (probe?.scaled) { blob = probe.blob; mimeType = probe.blob.type || mimeType; }
-    // A detailed PNG, like a Retina screenshot, can stay megabytes large;
-    // a high-quality JPEG is usually a fraction of that, so several fit.
-    if (blob.size > LIMITS.imageBytes / 4) {
-      const smaller = await redraw(file, MAX_EDGE, 'image/jpeg', 0.9);
-      if (smaller && smaller.blob.size < blob.size) { blob = smaller.blob; mimeType = 'image/jpeg'; }
+  const drawn = mimeType === 'image/gif' ? null : await draw(file, MAX_EDGE);
+  if (drawn) {
+    const transparent = mimeType !== 'image/jpeg' && hasTransparency(drawn);
+    if (drawn.scaled) {
+      const scaled = await encode(drawn.canvas, mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.9);
+      if (scaled) { blob = scaled; mimeType = scaled.type || mimeType; }
+    }
+    // A detailed opaque PNG, like a Retina screenshot, can stay megabytes
+    // large; a high-quality JPEG is usually a fraction of that, so several fit.
+    if (!transparent && blob.size > LIMITS.imageBytes / 4) {
+      const smaller = await encode(drawn.canvas, 'image/jpeg', 0.9);
+      if (smaller && smaller.size < blob.size) { blob = smaller; mimeType = 'image/jpeg'; }
     }
   }
   if (blob.size > LIMITS.imageBytes) throw new OperationalError('IMAGE_LIMIT');
   const data = toBase64(new Uint8Array(await blob.arrayBuffer()));
-  const thumb = await redraw(blob, THUMB_EDGE, 'image/jpeg', 0.8);
-  const preview = thumb ? `data:image/jpeg;base64,${toBase64(new Uint8Array(await thumb.blob.arrayBuffer()))}` : '';
+  const thumb = await draw(blob, THUMB_EDGE);
+  const thumbBlob = thumb && await encode(thumb.canvas, hasTransparency(thumb) ? 'image/png' : 'image/jpeg', 0.8);
+  const preview = thumbBlob ? `data:${thumbBlob.type};base64,${toBase64(new Uint8Array(await thumbBlob.arrayBuffer()))}` : '';
   return Object.freeze({ kind: 'image', name, size: blob.size, mimeType, data, preview });
 }
 

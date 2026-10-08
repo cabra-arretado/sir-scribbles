@@ -52,3 +52,44 @@ test('text files are quoted with the prompt marker and shown without it', () => 
   assert.equal(composePrompt('', null, null, undefined, [{ kind: 'image' }]), '');
   assert.throws(() => composePrompt('', null, null, undefined, []), { code: 'EMPTY_PROMPT' });
 });
+
+// A stand-in for the browser's image decoding: `alpha` sets the transparency
+// the canvas reports, and each encoding records its type. PNG output is large
+// and JPEG small, as for a detailed screenshot.
+function fakeCanvas(t, { width, height, alpha }) {
+  const encoded = [];
+  const saved = { createImageBitmap: globalThis.createImageBitmap, document: globalThis.document };
+  globalThis.createImageBitmap = async () => ({ width, height, close() {} });
+  globalThis.document = { createElement: () => {
+    const canvas = {
+      getContext: () => ({
+        drawImage() {},
+        getImageData: () => ({ data: Uint8ClampedArray.from({ length: canvas.width * canvas.height * 4 }, (_, index) => index % 4 === 3 ? alpha : 0) }),
+      }),
+      toBlob: (resolve, type) => {
+        encoded.push({ type, width: canvas.width });
+        resolve(new Blob([new Uint8Array(type === 'image/png' ? 2 * 1024 * 1024 : 1000)], { type }));
+      },
+    };
+    return canvas;
+  } };
+  t.after(() => Object.assign(globalThis, saved));
+  return encoded;
+}
+
+test('opaque large screenshots are scaled and sent as JPEG', async t => {
+  const encoded = fakeCanvas(t, { width: 4000, height: 2000, alpha: 255 });
+  const image = await readAttachment(new File([new Uint8Array(3 * 1024 * 1024)], 'shot.png', { type: 'image/png' }));
+  assert.equal(image.mimeType, 'image/jpeg');
+  assert.equal(image.size, 1000);
+  assert.deepEqual(encoded.slice(0, 2), [{ type: 'image/png', width: 2048 }, { type: 'image/jpeg', width: 2048 }]);
+  assert.match(image.preview, /^data:image\/jpeg;base64,/);
+});
+
+test('transparent images are never flattened to JPEG, nor their thumbnails', async t => {
+  const encoded = fakeCanvas(t, { width: 4000, height: 2000, alpha: 0 });
+  const image = await readAttachment(new File([new Uint8Array(3 * 1024 * 1024)], 'diagram.png', { type: 'image/png' }));
+  assert.equal(image.mimeType, 'image/png');
+  assert.ok(encoded.every(entry => entry.type === 'image/png'));
+  assert.match(image.preview, /^data:image\/png;base64,/);
+});
