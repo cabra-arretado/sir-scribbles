@@ -62,6 +62,28 @@ test('HTML, remote-media syntax, terminal escapes and tool input render as inert
   assert.ok(root.textContent.includes('two words'));
 });
 
+test('a web search row shows its exact query; a fetch row its address', t => {
+  const { model, panel } = create(t);
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 's', title: 'web_search', status: 'in_progress', rawInput: { query: '  capybara <b>knights</b> 2026 ' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'f', title: 'web_fetch', rawInput: { url: 'https://example.test/a', mode: 'selective' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'k', title: 'Searching the web for: sir scribbles', rawInput: { query: 'sir scribbles' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'r', title: 'Read file', rawInput: { path: '/a.md' } });
+  // A query that is only part of the tool's name is still shown.
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'w', title: 'web_search', rawInput: { query: 'search' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'x', title: 'web_search', rawInput: { query: 'web' } });
+  panel.render();
+  const summaries = [...panel.transcript.querySelectorAll('summary')].map(summary => summary.textContent);
+  assert.deepEqual(summaries, [
+    'web_search: “capybara <b>knights</b> 2026” · in_progress',
+    'web_fetch: https://example.test/a · pending',
+    'Searching the web for: sir scribbles · pending',
+    'Read file · pending',
+    'web_search: “search” · pending',
+    'web_search: “web” · pending',
+  ]);
+  assert.equal(panel.transcript.querySelector('summary b'), null);
+});
+
 test('selection preview is complete and removable; replacement is explicit', async t => {
   const { panel, model, attached, root } = create(t);
   panel.attach.click();
@@ -429,6 +451,44 @@ test('model picker appears only when the agent offers models and follows its sta
   model.changed();
   await tick();
   assert.equal(picker.disabled, true);
+});
+
+test('effort picker appears only when the model offers more than one level', async t => {
+  const { model, root, dom } = create(t);
+  const picker = root.querySelector('.sir-scribbles-effort');
+  const chosen = [];
+  model.session = { permissions: new Map(), setConfigOption: async (id, value) => { chosen.push([id, value]); } };
+  model.state = 'ready';
+  const offer = values => {
+    model.configOptions = [
+      { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'opus', options: [{ value: 'opus', name: 'Opus' }] },
+      ...values ? [{ id: 'effortLevel', name: 'Effort', type: 'select', currentValue: 'high', options: values.map(value => ({ value, name: value })) }] : [],
+    ];
+    model.changed();
+  };
+  offer(null);
+  await tick();
+  assert.equal(picker.hidden, true);
+  offer(['high']);
+  await tick();
+  assert.equal(picker.hidden, true);
+  offer(['low', 'high', 'max']);
+  await tick();
+  assert.equal(picker.hidden, false);
+  assert.equal(picker.value, 'high');
+  assert.equal(picker.querySelectorAll('option').length, 3);
+  assert.equal(root.querySelector(`label[for="${picker.id}"]`).textContent, 'Effort');
+  picker.value = 'max';
+  picker.dispatchEvent(new dom.window.Event('change'));
+  await tick();
+  assert.deepEqual(chosen, [['effortLevel', 'max']]);
+  model.state = 'working';
+  model.changed();
+  await tick();
+  assert.equal(picker.disabled, true);
+  offer(null);
+  await tick();
+  assert.equal(picker.hidden, true);
 });
 
 test('past chats list opens the chosen chat or a new one; replayed rows have no time', t => {

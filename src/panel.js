@@ -1,7 +1,7 @@
 import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
-import { displayPrompt } from './display.js';
+import { displayPrompt, toolSubject } from './display.js';
 import { ACCEPT, attachmentKind, checkAttachments, formatBytes, readAttachment } from './attachments.js';
 import { OperationalError } from './limits.js';
 import { describeApproval, describePath } from './approval.js';
@@ -37,7 +37,7 @@ export class ChatPanel {
     this.lastAttachments = undefined;
     this.dragDepth = 0;
     this.lastPath = null;
-    this.lastModel = null;
+    this.shown = new Map(); // picker -> the option it last listed
     this.lastHistory = undefined;
     this.streaming = new Set();
     this.frame = null;
@@ -194,12 +194,15 @@ export class ChatPanel {
     // Obsidian styles a plain select with its own "dropdown" class.
     this.modelPicker = this.el('select', 'dropdown sir-scribbles-model');
     this.modelPicker.addEventListener('change', () => { void this.model.setModel(this.modelPicker.value); });
+    this.effortPicker = this.el('select', 'dropdown sir-scribbles-model sir-scribbles-effort');
+    this.effortPicker.addEventListener('change', () => { void this.model.setEffort(this.effortPicker.value); });
     this.force = this.button('Force stop agent', () => { void this.model.forceStop(); }, 'sir-scribbles-danger');
     this.send = this.button('', () => { void this.model.send(this.actions.getPath().trim()); }, 'mod-cta sir-scribbles-send');
     this.setIcon(this.send, 'arrow-up', 'Send');
     this.stop = this.button('', () => this.model.stop(), 'sir-scribbles-send sir-scribbles-stop');
     this.setIcon(this.stop, 'square', 'Stop');
-    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.force, this.stop, this.send);
+    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.modelPicker, 'Model'), this.modelPicker,
+      this.labelFor(this.effortPicker, 'Effort'), this.effortPicker, this.force, this.stop, this.send);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
     composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
     footer.append(composer);
@@ -332,6 +335,7 @@ export class ChatPanel {
     this.stop.disabled = model.state === 'stopping' || model.resetting;
     this.send.hidden = !this.stop.hidden;
     this.modelPicker.disabled = model.state !== 'ready' || model.configPending || model.resetting;
+    this.effortPicker.disabled = this.modelPicker.disabled;
     this.force.hidden = !model.forceAvailable;
     this.force.disabled = model.resetting;
   }
@@ -355,7 +359,8 @@ export class ChatPanel {
     this.renderSelection();
     this.renderAttachments();
     this.renderPermission();
-    this.renderModel();
+    this.renderPicker(this.modelPicker, this.model.modelOption());
+    this.renderPicker(this.effortPicker, this.model.effortOption());
     this.renderHistory();
   }
 
@@ -408,34 +413,33 @@ export class ChatPanel {
 
   // Agents replace the whole option list on every change, so a new object
   // means new choices; the current value is synced on every render.
-  renderModel() {
-    const option = this.model.modelOption();
-    this.modelPicker.hidden = !option;
-    if (!option) { this.lastModel = null; return; }
-    if (option !== this.lastModel) {
-      this.lastModel = option;
+  renderPicker(picker, option) {
+    picker.hidden = !option;
+    if (!option) { this.shown.delete(picker); return; }
+    if (option !== this.shown.get(picker)) {
+      this.shown.set(picker, option);
       const groups = new Map();
-      this.modelPicker.replaceChildren();
+      picker.replaceChildren();
       for (const value of option.options) {
         const item = this.el('option', '', value.name);
         item.value = value.value;
         if (value.description) item.title = value.description;
-        let parent = this.modelPicker;
+        let parent = picker;
         if (value.group) {
           parent = groups.get(value.group);
           if (!parent) {
             parent = this.el('optgroup');
             parent.label = value.group;
             groups.set(value.group, parent);
-            this.modelPicker.append(parent);
+            picker.append(parent);
           }
         }
         parent.append(item);
       }
     }
     const current = option.options.find(value => value.value === option.currentValue);
-    this.modelPicker.value = option.currentValue;
-    this.modelPicker.title = [option.name, current?.description].filter(Boolean).join(' · ');
+    picker.value = option.currentValue;
+    picker.title = [option.name, current?.description].filter(Boolean).join(' · ');
   }
 
   renderMessages() {
@@ -484,7 +488,13 @@ export class ChatPanel {
         this.rows.set(message, row);
         this.transcript.append(root);
       }
-      if (row.summary) row.summary.textContent = `${typeof message.data.title === 'string' ? message.data.title : 'Tool'} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
+      if (row.summary) {
+        const title = typeof message.data.title === 'string' ? message.data.title : 'Tool';
+        // A title like "Searching the web for: <query>" already ends with it.
+        const subject = toolSubject(message.data);
+        const shown = subject && !title.endsWith(`: ${subject.replace(/^“|”$/g, '')}`) ? `${title}: ${subject}` : title;
+        row.summary.textContent = `${shown} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
+      }
       if (message.role === 'agent') this.updateReply(row, message);
       else if (message.text !== row.rendered || message.attachments !== row.attachments) {
         // Files sent from here show as chips, so their text stays out of the
