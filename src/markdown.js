@@ -124,10 +124,28 @@ export function settleStreaming(source) {
   return text + suffix;
 }
 
-export function renderMarkdown(container, source, { openNote, sourcePath = '', vaultPath = '' } = {}) {
+// One page of a reply. Agent output has no size limit short of the session's,
+// and every rendered node costs memory: a 390 KB reply of short paragraphs
+// otherwise builds 130,000 elements. Callers raise the page count on request.
+export const RENDER_BUDGET = { chars: 100_000, tokens: 25_000 };
+
+// Cut where a block ends when one is near, so the last shown paragraph is whole.
+function budgetSource(source, max) {
+  if (source.length <= max) return source;
+  let cut = source.lastIndexOf('\n\n', max);
+  if (cut < max / 2) cut = source.lastIndexOf('\n', max);
+  if (cut < max / 2) cut = max - (/[\ud800-\udbff]/.test(source[max - 1]) ? 1 : 0);
+  return source.slice(0, cut);
+}
+
+// Returns true when the budget left part of the source unrendered.
+export function renderMarkdown(container, source, { openNote, sourcePath = '', vaultPath = '', pages = 1 } = {}) {
   const document = container.ownerDocument;
   const fragment = document.createDocumentFragment();
   const stack = [fragment];
+  const shown = budgetSource(source, RENDER_BUDGET.chars * pages);
+  let tokensLeft = RENDER_BUDGET.tokens * pages;
+  let truncated = shown.length < source.length;
   const wireNote = (element, target) => {
     if (!openNote) return;
     element.classList.add('internal-link');
@@ -143,8 +161,9 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '', v
   };
   const append = tokens => {
     for (const token of tokens) {
+      if (tokensLeft-- <= 0) { truncated = true; return; }
       const parent = stack.at(-1);
-      if (token.type === 'inline') { append(token.children ?? []); continue; }
+      if (token.type === 'inline') { append(token.children ?? []); if (tokensLeft < 0) return; continue; }
       if (token.type === 'vault_link') {
         const link = document.createElement('a');
         link.textContent = token.content;
@@ -213,7 +232,7 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '', v
       }
     }
   };
-  append(markdown.parse(source, {}));
+  append(markdown.parse(shown, {}));
   // Keep leading blocks that did not change, so streaming only touches the
   // tail: earlier paragraphs do not reflow and a text selection survives.
   // Walk siblings rather than copying node lists, and append the fragment
@@ -229,4 +248,5 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '', v
     stale.remove();
   }
   container.append(fragment);
+  return truncated;
 }

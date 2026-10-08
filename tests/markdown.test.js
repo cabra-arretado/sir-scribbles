@@ -2,20 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { JSDOM } from 'jsdom';
-import { renderMarkdown, settleStreaming } from '../src/markdown.js';
+import { RENDER_BUDGET, renderMarkdown, settleStreaming } from '../src/markdown.js';
 
 test('large unmatched wiki prefixes do not repeatedly scan the remaining reply', () => {
   const dom = new JSDOM('<main></main>');
   const root = dom.window.document.querySelector('main');
   const source = '[['.repeat(320000);
   const start = performance.now();
-  renderMarkdown(root, source);
+  renderMarkdown(root, source, { pages: 10 });
   const elapsed = performance.now() - start;
   assert.equal(root.textContent, source);
   // The independently reproduced regression took over ten seconds locally.
   // A generous ceiling tolerates CI overhead while catching that UI freeze.
   assert.ok(elapsed < 5000, `Unmatched wiki rendering took ${elapsed.toFixed(0)} ms`);
-  renderMarkdown(root, '[['.repeat(50000) + '\nblocked]]\n\n[[Valid|Label]]', { openNote: () => {} });
+  renderMarkdown(root, '[['.repeat(50000) + '\nblocked]]\n\n[[Valid|Label]]', { openNote: () => {}, pages: 2 });
   assert.equal(root.querySelectorAll('.internal-link').length, 1);
   assert.equal(root.querySelector('.internal-link').textContent, 'Label');
   dom.window.close();
@@ -79,8 +79,28 @@ test('a reused link opens the destination its definition finished with', () => {
 test('replies with many blocks render without overflowing the stack', () => {
   const dom = new JSDOM('<main></main>');
   const root = dom.window.document.querySelector('main');
-  renderMarkdown(root, 'x\n\n'.repeat(130000));
+  assert.equal(renderMarkdown(root, 'x\n\n'.repeat(130000), { pages: 100 }), false);
   assert.equal(root.childElementCount, 130000);
+  dom.window.close();
+});
+
+test('a huge reply renders one bounded page at a time', () => {
+  const dom = new JSDOM('<main></main>');
+  const root = dom.window.document.querySelector('main');
+  // Many tiny blocks hit the token budget before the character budget.
+  const blocks = 'x\n\n'.repeat(130000);
+  assert.equal(renderMarkdown(root, blocks), true);
+  const first = root.childElementCount;
+  assert.ok(first > 0 && first <= RENDER_BUDGET.tokens / 3, `${first} paragraphs rendered`);
+  assert.equal(renderMarkdown(root, blocks, { pages: 2 }), true);
+  assert.ok(root.childElementCount > first);
+  // Long prose hits the character budget and stops at a paragraph boundary.
+  const paragraph = 'word '.repeat(199) + 'end.';
+  const prose = (paragraph + '\n\n').repeat(Math.ceil(RENDER_BUDGET.chars / 1000) * 3);
+  assert.equal(renderMarkdown(root, prose), true);
+  assert.ok(root.textContent.length <= RENDER_BUDGET.chars);
+  assert.ok(root.lastElementChild.textContent.endsWith('end.'));
+  assert.equal(renderMarkdown(root, 'Short reply.'), false);
   dom.window.close();
 });
 

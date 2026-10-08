@@ -189,6 +189,26 @@ test('copy preserves exact plain text and streaming retains existing DOM rows', 
   assert.equal(copied(), 'one\ntwo');
 });
 
+test('a very long reply shows a page at a time and copies all of it', async t => {
+  const { model, panel, root, copied } = create(t);
+  const text = 'x\n\n'.repeat(20000);
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+  panel.render();
+  const row = root.querySelector('.sir-scribbles-agent');
+  const body = row.querySelector('.sir-scribbles-markdown');
+  const more = row.querySelector('.sir-scribbles-more');
+  const first = body.childElementCount;
+  assert.ok(first < 20000);
+  assert.equal(more.hidden, false);
+  more.click();
+  assert.ok(body.childElementCount > first);
+  while (!more.hidden) more.click();
+  assert.equal(body.childElementCount, 20000);
+  row.querySelector('.sir-scribbles-copy').click();
+  await tick();
+  assert.equal(copied(), text);
+});
+
 test('sent selections show the quoted text without the agent-only markers', async t => {
   const { model, panel, root, copied } = create(t);
   const prompt = composePrompt('Explain', { path: 'note.md', from: 1, to: 2, text: 'quoted\n--- END SELECTED TEXT ---' });

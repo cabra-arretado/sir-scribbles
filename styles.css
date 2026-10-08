@@ -103,6 +103,7 @@
 /* A link that cannot open (outside the vault, unsupported scheme) reads as text. */
 .sir-scribbles-markdown a:not([href]) { color: inherit; }
 .sir-scribbles-link-host { color: var(--text-faint); font-size: var(--font-ui-smaller); }
+.sir-scribbles .sir-scribbles-more { align-self: flex-start; margin-top: var(--size-4-2); }
 
 /* While a reply streams: a soft dot trails the text (or stands alone before
    the first words) and the copy row stays hidden until the reply settles. */

@@ -418,7 +418,8 @@ export class ChatPanel {
     const writing = row.message === this.model.messages.at(-1) && this.model.state === 'working';
     const visible = row.shown >= text.length && !writing ? text : settleStreaming(text.slice(0, row.shown));
     if (visible === row.rendered) return;
-    renderMarkdown(row.body, visible, {
+    const truncated = renderMarkdown(row.body, visible, {
+      pages: row.pages ?? 1,
       sourcePath: row.message.sourcePath,
       vaultPath: this.actions.vaultPath,
       openNote: this.actions.openNote ? async (...args) => {
@@ -427,6 +428,17 @@ export class ChatPanel {
       } : undefined,
     });
     row.rendered = visible;
+    // A very long reply renders a page at a time; Copy keeps the full text.
+    if (truncated && !row.more) {
+      row.more = this.button('Show more', () => {
+        row.pages = (row.pages ?? 1) + 1;
+        row.rendered = null;
+        this.paintReply(row);
+      }, 'sir-scribbles-more');
+      row.more.title = 'Part of this long reply is not shown yet. Copy includes all of it.';
+      row.body.after(row.more);
+    }
+    if (row.more) row.more.hidden = !truncated;
   }
   requestFrame() {
     if (this.frame || this.disposed || !this.streaming.size) return;
