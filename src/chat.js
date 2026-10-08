@@ -62,6 +62,9 @@ export class ChatController extends EventEmitter {
     this.file = null;
     this.attachments = []; // Replaced, never mutated, so a changed draft is detectable.
     this.reading = 0; // File reads in progress; sending waits for them.
+    // Counts composer clears. Starting or restarting the agent keeps the
+    // composer, so reads belong to this, not to the session generation.
+    this.composerEpoch = 0;
     this.identity = '';
     this.configOptions = [];
     this.configPending = false;
@@ -101,12 +104,22 @@ export class ChatController extends EventEmitter {
     this.changed();
   }
   // A paste or drop is still being read: Send stays off so the prompt cannot
-  // leave without the file. Returns the generation the read belongs to.
-  beginRead() { this.reading++; this.changed(); return this.generation; }
-  endRead(generation) {
-    if (generation !== this.generation || this.disposed) return;
+  // leave without the file. Returns the composer the read belongs to; a read
+  // for a composer since cleared is dropped and no longer counted.
+  beginRead() { this.reading++; this.changed(); return this.composerEpoch; }
+  readCurrent(epoch) { return !this.disposed && epoch === this.composerEpoch; }
+  endRead(epoch) {
+    if (!this.readCurrent(epoch)) return;
     this.reading = Math.max(0, this.reading - 1);
     this.changed();
+  }
+  clearComposer() {
+    this.draft = '';
+    this.selection = null;
+    this.file = null;
+    this.attachments = [];
+    this.reading = 0;
+    this.composerEpoch++;
   }
   removeAttachment(item) { this.attachments = this.attachments.filter(entry => entry !== item); this.changed(); }
   // Unknown until the agent has started and said so.
@@ -328,7 +341,9 @@ export class ChatController extends EventEmitter {
       const startupGeneration = this.generation;
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== 'ready') return;
-      if (this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile || this.attachments !== originalAttachments) {
+      // A file pasted during startup may still be reading; the draft would
+      // otherwise compare unchanged and leave without it.
+      if (this.reading || this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile || this.attachments !== originalAttachments) {
         this.error = 'The draft changed while the agent was starting. Review it and send again.';
         this.changed();
         return;
@@ -435,12 +450,7 @@ export class ChatController extends EventEmitter {
     this.messages = [];
     this.turnSourcePath = '';
     this.tools.clear();
-    if (!keepComposer) {
-      this.draft = '';
-      this.selection = null;
-      this.file = null;
-      this.attachments = [];
-    }
+    if (!keepComposer) this.clearComposer();
     this.identity = '';
     this.configOptions = [];
     this.configPending = false;
@@ -451,7 +461,6 @@ export class ChatController extends EventEmitter {
     this.history = null;
     this.loading = false;
     this.recent = null;
-    this.reading = 0;
     this.forceAvailable = false;
     this.resetting = false;
     this.state = 'not-started';
@@ -462,10 +471,7 @@ export class ChatController extends EventEmitter {
   async dispose() {
     this.disposed = true;
     ++this.generation;
-    this.draft = '';
-    this.selection = null;
-    this.file = null;
-    this.attachments = [];
+    this.clearComposer();
     this.messages = [];
     this.turnSourcePath = '';
     this.tools.clear();

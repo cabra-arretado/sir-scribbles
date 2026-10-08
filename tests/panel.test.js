@@ -670,3 +670,21 @@ test('replayed image turns show placeholder chips under their bubble', t => {
   assert.equal(turns[1].querySelector('.sir-scribbles-plain-text').hidden, true);
   assert.equal(turns[1].querySelector('.sir-scribbles-attachment-icon').getAttribute('aria-label'), 'Image');
 });
+
+test('a slow paste survives Start agent and still attaches', async t => {
+  const { dom, model, panel } = create(t);
+  let finish;
+  const slow = { name: 'slow.md', type: 'text/plain', size: 4, arrayBuffer: () => new Promise(resolve => { finish = () => resolve(new TextEncoder().encode('late').buffer); }) };
+  const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+  event.clipboardData = { files: [slow] };
+  panel.composer.dispatchEvent(event);
+  model.generation++; // What connecting the agent does meanwhile.
+  finish();
+  await tick();
+  panel.render();
+  assert.equal(model.reading, 0);
+  assert.deepEqual(model.attachments.map(item => item.text), ['late']);
+  model.setDraft('go');
+  panel.renderControls();
+  assert.equal(panel.send.disabled, false);
+});

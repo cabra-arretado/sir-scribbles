@@ -581,3 +581,40 @@ test('replayed image turns keep a placeholder chip, grouped by message', async (
     { role: 'user', text: '', attachments: [{ kind: 'image', name: 'Image', size: 6, preview: '' }] },
   ]);
 });
+
+test('a read pending while the agent starts is still counted and settles', async () => {
+  const { controller } = create();
+  const reading = controller.beginRead();
+  await controller.start('/fixture'); // Bumps the session generation.
+  assert.equal(controller.state, 'ready');
+  assert.ok(controller.readCurrent(reading));
+  controller.endRead(reading);
+  assert.equal(controller.reading, 0);
+  // Clearing the composer drops reads that belonged to it.
+  const stale = controller.beginRead();
+  await controller.newChat();
+  assert.equal(controller.reading, 0);
+  assert.equal(controller.readCurrent(stale), false);
+  controller.endRead(stale);
+  assert.equal(controller.reading, 0);
+});
+
+test('a file pasted during first-send startup holds the prompt back', async () => {
+  const { controller, session } = create();
+  controller.setDraft('describe the file');
+  const sending = controller.send('/fixture');
+  const reading = controller.beginRead(); // Pasted while the agent starts.
+  await new Promise(resolve => setTimeout(resolve, 20));
+  if (session.sent.length) session.complete(); // A regression fails here instead of hanging.
+  await sending;
+  assert.deepEqual(session.sent, []);
+  assert.equal(controller.draft, 'describe the file');
+  assert.equal(controller.error, 'The draft changed while the agent was starting. Review it and send again.');
+  controller.addAttachments([Object.freeze({ kind: 'text', name: 'a.md', size: 5, text: 'alpha' })]);
+  controller.endRead(reading);
+  const resend = controller.send('/fixture');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(session.sent[0], /^describe the file\n\nAttached file \(a\.md\)/);
+  session.complete();
+  await resend;
+});

@@ -273,14 +273,16 @@ export class ChatPanel {
   async addFiles(files) {
     const model = this.model;
     const generation = model.generation;
-    const live = () => !this.disposed && !model.resetting && generation === model.generation;
+    // Reads outlive agent starts and restarts; only clearing the composer
+    // (New chat, closing the tab) drops them.
     let reading = null;
+    const live = () => !this.disposed && (model.readCurrent && reading !== null ? model.readCurrent(reading) : generation === model.generation);
     try {
       const kinds = files.map(file => attachmentKind(file));
       if (kinds.includes(null)) throw new OperationalError('FILE_TYPE_UNSUPPORTED');
       checkAttachments([...model.attachments, ...kinds.map(kind => ({ kind, size: 0 }))]);
       if (kinds.includes('image') && model.supportsImages?.() === false) throw new OperationalError('IMAGES_NOT_SUPPORTED');
-      reading = model.beginRead?.();
+      reading = model.beginRead?.() ?? null;
       const items = [];
       for (const file of files) {
         items.push(await readAttachment(file));
