@@ -5,7 +5,7 @@ import { ChatController } from '../src/chat.js';
 import { ChatPanel } from '../src/panel.js';
 import { composePrompt } from '../src/draft.js';
 
-function create(t, { frames = false } = {}) {
+function create(t, { frames = false, approvalDelay = 0 } = {}) {
   const dom = new JSDOM('<main></main>', { url: 'https://fixture.test' });
   // Controlled animation frames: `frame()` runs the pending callbacks once.
   const pending = new Map();
@@ -31,6 +31,7 @@ function create(t, { frames = false } = {}) {
     attachFile: async () => Object.freeze({ kind: 'file', path: 'whole.md' }),
     confirmReset: async () => true,
     copyText: async text => { copied = text; },
+    approvalDelay,
   });
   t.after(() => { panel.dispose(); dom.window.close(); });
   return { dom, model, root, panel, frame, pending, attached: () => attached, copied: () => copied };
@@ -88,6 +89,28 @@ test('ID-only permission shows fallback details and leaves the choice to the use
   assert.ok(root.textContent.includes('Tool arguments were not supplied'));
   assert.equal(root.querySelectorAll('.sir-scribbles-decisions button').length, 2);
   assert.equal(model.session.permissions.size, 1);
+});
+
+test('a double-click cannot approve the next queued action', async t => {
+  const { model, panel, root } = create(t, { approvalDelay: 30 });
+  const card = (id, title) => ({ id, params: { toolCall: { title, kind: 'execute', rawInput: {} } },
+    options: [{ optionId: `allow-${id}`, name: 'Allow', kind: 'allow_once' }, { optionId: `deny-${id}`, name: 'Deny', kind: 'reject_once' }] });
+  const decided = [];
+  const first = card(1, 'First'), second = card(2, 'Second');
+  model.session = { permissions: new Map([[1, first], [2, second]]), decide: (id, option) => { decided.push(option); model.session.permissions.delete(id); return true; } };
+  model.state = 'waiting-for-approval';
+  panel.render();
+  const allow = () => root.querySelector('.sir-scribbles-decisions button');
+  allow().click();
+  assert.deepEqual(decided, [], 'a card that just appeared ignores clicks');
+  await tick();
+  allow().click();
+  assert.equal(root.querySelector('.sir-scribbles-permission-area h3').textContent, 'Second');
+  allow().click();
+  assert.deepEqual(decided, ['allow-1'], 'the second click of a double-click lands on a waiting button');
+  await tick();
+  allow().click();
+  assert.deepEqual(decided, ['allow-1', 'allow-2']);
 });
 
 test('one-time approval buttons use original IDs, omit persistent choices and reject stale cards', t => {
@@ -187,6 +210,26 @@ test('copy preserves exact plain text and streaming retains existing DOM rows', 
   row.querySelector('button').click();
   await tick();
   assert.equal(copied(), 'one\ntwo');
+});
+
+test('a very long reply shows a page at a time and copies all of it', async t => {
+  const { model, panel, root, copied } = create(t);
+  const text = 'x\n\n'.repeat(20000);
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
+  panel.render();
+  const row = root.querySelector('.sir-scribbles-agent');
+  const body = row.querySelector('.sir-scribbles-markdown');
+  const more = row.querySelector('.sir-scribbles-more');
+  const first = body.childElementCount;
+  assert.ok(first < 20000);
+  assert.equal(more.hidden, false);
+  more.click();
+  assert.ok(body.childElementCount > first);
+  while (!more.hidden) more.click();
+  assert.equal(body.childElementCount, 20000);
+  row.querySelector('.sir-scribbles-copy').click();
+  await tick();
+  assert.equal(copied(), text);
 });
 
 test('sent selections show the quoted text without the agent-only markers', async t => {

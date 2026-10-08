@@ -1,4 +1,4 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, FileSystemAdapter, MarkdownView, Modal, Notice, setIcon } from 'obsidian';
+import { Plugin, ItemView, PluginSettingTab, Setting, FileSystemAdapter, MarkdownView, Modal, Notice, getLinkpath, setIcon } from 'obsidian';
 import { ChatController } from './chat.js';
 import { ChatTabs, TabbedPanel } from './tabs.js';
 import { captureSelection, captureFile } from './draft.js';
@@ -6,6 +6,9 @@ import { validateExecutable } from './process.js';
 import { statusBarInset } from './layout.js';
 
 const VIEW_TYPE = 'sir-scribbles';
+// File types Obsidian displays in its own views. Agent links never create a
+// note or hand another kind of file to the system's default app.
+const NOTE_EXTENSIONS = new Set(['md', 'canvas', 'base', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'avif']);
 
 // The executable path is a device setting, not vault content. Plugin data lives
 // inside the vault, where sync or a shared repository could change what runs.
@@ -77,6 +80,8 @@ class ScribblesView extends ItemView {
           if (target.vault && target.vault !== this.app.vault.getName()) throw new Error('Different vault');
           target = target.path;
         }
+        const file = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(target), sourcePath);
+        if (!file || !NOTE_EXTENSIONS.has(file.extension.toLowerCase())) throw new Error('Not a note in this vault');
         await this.app.workspace.openLinkText(target, sourcePath, newLeaf);
       },
     });
