@@ -143,3 +143,13 @@ test('file URLs into the vault decode once and keep heading and block references
   assert.deepEqual(opened, ['Progress at 50%.md', 'Literal%20name.md', 'Plan.md#Next steps', 'Plan.md#^block-1']);
   dom.window.close();
 });
+
+test('note links name the note they open, whatever their text says', () => {
+  const dom = new JSDOM('<main></main>');
+  const root = dom.window.document.querySelector('main');
+  renderMarkdown(root, '[[Projects/Plan|the budget]] and [safe](../Tools/run.command "Docs")', { openNote: () => {} });
+  const [wiki, markdownLink] = root.querySelectorAll('a');
+  assert.equal(wiki.title, 'Projects/Plan');
+  assert.equal(markdownLink.title, 'Docs\n../Tools/run.command');
+  dom.window.close();
+});

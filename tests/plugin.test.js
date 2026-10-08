@@ -39,7 +39,8 @@ function create(t) {
   class PluginSettingTab {}
   class Setting {}
   class Notice {}
-  const api = { Plugin, ItemView, MarkdownView, FileSystemAdapter, Modal, PluginSettingTab, Setting, Notice };
+  const getLinkpath = link => link.split('#')[0];
+  const api = { Plugin, ItemView, MarkdownView, FileSystemAdapter, Modal, PluginSettingTab, Setting, Notice, getLinkpath };
   const module = { exports: {} };
   const customRequire = name => {
     if (name === 'obsidian') return api;
@@ -110,12 +111,18 @@ test('note navigation uses Obsidian API and refuses links to another vault', asy
   const opened = [];
   app.vault.getName = () => 'Studio';
   app.workspace.openLinkText = async (...args) => { opened.push(args); };
+  const files = { 'Notes/Example': 'md', 'Notes/Other': 'md', 'Tools/run.command': 'command', 'Site/page.html': 'html' };
+  app.metadataCache = { getFirstLinkpathDest: path => path in files ? { path, extension: files[path] } : null };
   await plugin.onload();
   await leaf.setViewState();
   const open = leaf.view.panel.actions.openNote;
   await open('Notes/Example#Heading', 'Projects/source.md', true);
   await open({ path: 'Notes/Other', vault: 'Studio' }, '', false);
   await assert.rejects(open({ path: 'Private', vault: 'Different' }, '', false));
+  // Missing notes are not created; other file types are not opened.
+  await assert.rejects(open('Notes/Missing', '', false));
+  await assert.rejects(open('Tools/run.command', '', false));
+  await assert.rejects(open('Site/page.html', '', false));
   assert.deepEqual(opened, [
     ['Notes/Example#Heading', 'Projects/source.md', true],
     ['Notes/Other', '', false],

@@ -153,6 +153,8 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '', v
     // Streaming reuses unchanged nodes, and `isEqualNode` ignores listeners:
     // record the destination so a link whose target changed is replaced.
     element.dataset.note = JSON.stringify(target);
+    // Link text is agent-controlled; the tooltip names the note it opens.
+    element.title = typeof target === 'object' ? target.path : target;
     element.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
@@ -222,7 +224,7 @@ export function renderMarkdown(container, source, { openNote, sourcePath = '', v
           const title = token.attrGet('title');
           const external = element.hasAttribute('href') && element.getAttribute('href') !== '#';
           if (external) element.title = title ? `${title}\n${href}` : href;
-          else if (title) element.title = title;
+          else if (title) element.title = element.title ? `${title}\n${element.title}` : title;
         } else if (token.tag === 'ol') {
           const start = token.attrGet('start');
           if (start && /^\d+$/.test(start)) element.setAttribute('start', start);
