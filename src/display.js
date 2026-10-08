@@ -11,3 +11,16 @@ export function displayPrompt(prompt, { files = true } = {}) {
   const text = files ? prompt : prompt.replace(FILE_BLOCK, '');
   return text.replace(QUOTED, '\n$3');
 }
+
+// What a tool call is about, taken verbatim from its input: the search query
+// of a web search, or the address of a fetch. Agents name these keys
+// differently, so the common ones are tried in order.
+const QUERY_KEYS = ['query', 'search_query', 'searchQuery', 'search_term', 'q'];
+export function toolSubject(data) {
+  const input = data?.rawInput;
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) return '';
+  const found = key => typeof input[key] === 'string' && input[key].trim() ? input[key].trim() : '';
+  const query = QUERY_KEYS.map(found).find(Boolean);
+  if (query) return `“${query}”`;
+  return found('url');
+}

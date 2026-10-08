@@ -1,7 +1,7 @@
 import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
-import { displayPrompt } from './display.js';
+import { displayPrompt, toolSubject } from './display.js';
 import { ACCEPT, attachmentKind, checkAttachments, formatBytes, readAttachment } from './attachments.js';
 import { OperationalError } from './limits.js';
 import { describeApproval, describePath } from './approval.js';
@@ -488,7 +488,13 @@ export class ChatPanel {
         this.rows.set(message, row);
         this.transcript.append(root);
       }
-      if (row.summary) row.summary.textContent = `${typeof message.data.title === 'string' ? message.data.title : 'Tool'} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
+      if (row.summary) {
+        const title = typeof message.data.title === 'string' ? message.data.title : 'Tool';
+        // Kiro's titles may already carry the query; don't repeat it.
+        const subject = toolSubject(message.data);
+        const shown = subject && !title.includes(subject.replace(/^“|”$/g, '')) ? `${title}: ${subject}` : title;
+        row.summary.textContent = `${shown} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
+      }
       if (message.role === 'agent') this.updateReply(row, message);
       else if (message.text !== row.rendered || message.attachments !== row.attachments) {
         // Files sent from here show as chips, so their text stays out of the

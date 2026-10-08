@@ -62,6 +62,23 @@ test('HTML, remote-media syntax, terminal escapes and tool input render as inert
   assert.ok(root.textContent.includes('two words'));
 });
 
+test('a web search row shows its exact query; a fetch row its address', t => {
+  const { model, panel } = create(t);
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 's', title: 'web_search', status: 'in_progress', rawInput: { query: '  capybara <b>knights</b> 2026 ' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'f', title: 'web_fetch', rawInput: { url: 'https://example.test/a', mode: 'selective' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'k', title: 'Searching the web for: sir scribbles', rawInput: { query: 'sir scribbles' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'r', title: 'Read file', rawInput: { path: '/a.md' } });
+  panel.render();
+  const summaries = [...panel.transcript.querySelectorAll('summary')].map(summary => summary.textContent);
+  assert.deepEqual(summaries, [
+    'web_search: “capybara <b>knights</b> 2026” · in_progress',
+    'web_fetch: https://example.test/a · pending',
+    'Searching the web for: sir scribbles · pending',
+    'Read file · pending',
+  ]);
+  assert.equal(panel.transcript.querySelector('summary b'), null);
+});
+
 test('selection preview is complete and removable; replacement is explicit', async t => {
   const { panel, model, attached, root } = create(t);
   panel.attach.click();
