@@ -68,6 +68,9 @@ test('a web search row shows its exact query; a fetch row its address', t => {
   model.update({ sessionUpdate: 'tool_call', toolCallId: 'f', title: 'web_fetch', rawInput: { url: 'https://example.test/a', mode: 'selective' } });
   model.update({ sessionUpdate: 'tool_call', toolCallId: 'k', title: 'Searching the web for: sir scribbles', rawInput: { query: 'sir scribbles' } });
   model.update({ sessionUpdate: 'tool_call', toolCallId: 'r', title: 'Read file', rawInput: { path: '/a.md' } });
+  // A query that is only part of the tool's name is still shown.
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'w', title: 'web_search', rawInput: { query: 'search' } });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'x', title: 'web_search', rawInput: { query: 'web' } });
   panel.render();
   const summaries = [...panel.transcript.querySelectorAll('summary')].map(summary => summary.textContent);
   assert.deepEqual(summaries, [
@@ -75,6 +78,8 @@ test('a web search row shows its exact query; a fetch row its address', t => {
     'web_fetch: https://example.test/a · pending',
     'Searching the web for: sir scribbles · pending',
     'Read file · pending',
+    'web_search: “search” · pending',
+    'web_search: “web” · pending',
   ]);
   assert.equal(panel.transcript.querySelector('summary b'), null);
 });

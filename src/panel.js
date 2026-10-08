@@ -490,9 +490,9 @@ export class ChatPanel {
       }
       if (row.summary) {
         const title = typeof message.data.title === 'string' ? message.data.title : 'Tool';
-        // Kiro's titles may already carry the query; don't repeat it.
+        // A title like "Searching the web for: <query>" already ends with it.
         const subject = toolSubject(message.data);
-        const shown = subject && !title.includes(subject.replace(/^“|”$/g, '')) ? `${title}: ${subject}` : title;
+        const shown = subject && !title.endsWith(`: ${subject.replace(/^“|”$/g, '')}`) ? `${title}: ${subject}` : title;
         row.summary.textContent = `${shown} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
       }
       if (message.role === 'agent') this.updateReply(row, message);

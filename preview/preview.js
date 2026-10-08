@@ -18,10 +18,16 @@ class Fixture {
   activePermission() { return this.session.permissions.values().next().value ?? null; }
   setError() { this.error = 'Preview only. No agent executable is launched.'; this.changed(); }
   modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
-  setModel(value) {
+  effortOption() {
+    const option = this.configOptions.find(entry => entry.category === 'thought_level');
+    return option && option.options.length > 1 ? option : null;
+  }
+  setModel(value) { this.setConfig(value, this.effortOption()?.currentValue); }
+  setEffort(value) { this.setConfig(this.modelOption().currentValue, value); }
+  setConfig(model, effort) {
     // Mimic the round trip: the agent replies with the full option list.
     this.configPending = true; this.changed();
-    setTimeout(() => { this.configOptions = models(value); this.configPending = false; this.changed(); }, 400);
+    setTimeout(() => { this.configOptions = models(model, effort); this.configPending = false; this.changed(); }, 400);
   }
   browse() {
     this.state = 'connected'; this.identity = 'Agent · UI fixture'; this.history = { pending: true }; this.changed();
@@ -66,12 +72,19 @@ const PAST = [
   { sessionId: 'c', title: '', updatedAt: Date.now() - 864e5 * 20 },
   ...Array.from({ length: 17 }, (_, i) => ({ sessionId: `old-${i}`, title: `Older chat ${i + 1}`, updatedAt: Date.now() - 864e5 * (25 + i * 4) })),
 ];
-const models = current => [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
-  { value: 'auto', name: 'Auto', description: 'Picks a model for each task' },
-  { value: 'claude-sonnet', name: 'Claude Sonnet', group: 'Claude' },
-  { value: 'claude-opus', name: 'Claude Opus', group: 'Claude' },
-  { value: 'claude-haiku', name: 'Claude Haiku', group: 'Claude' },
-] }];
+// Effort levels depend on the model; Auto and Haiku only have a default,
+// so the effort picker hides for them.
+const LEVELS = { auto: ['default'], 'claude-sonnet': ['low', 'medium', 'high'], 'claude-opus': ['low', 'medium', 'high', 'xhigh', 'max'], 'claude-haiku': ['default'] };
+const models = (current, effort) => {
+  const levels = LEVELS[current];
+  return [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
+    { value: 'auto', name: 'Auto', description: 'Picks a model for each task' },
+    { value: 'claude-sonnet', name: 'Claude Sonnet', group: 'Claude' },
+    { value: 'claude-opus', name: 'Claude Opus', group: 'Claude' },
+    { value: 'claude-haiku', name: 'Claude Haiku', group: 'Claude' },
+  ] }, { id: 'effortLevel', name: 'Effort', category: 'thought_level', type: 'select',
+    currentValue: levels.includes(effort) ? effort : (levels.includes('high') ? 'high' : levels[0]), options: levels.map(value => ({ value, name: value })) }];
+};
 const STREAM = 'This is an interactive UI preview. In the plugin, your prompt goes to the **local agent process** and its reply streams back in uneven bursts.\n\n## What you are seeing\n\n- Text eases in at a pace that follows the *backlog*, not each burst.\n- Unfinished `inline code`, **bold** and [links](https://example.com) never flash as raw syntax.\n- Earlier paragraphs stay put while the tail grows.\n\n```js\nconst principle = "Keep the user in the loop";\n```\n\nSee [[Projects/Launch notes|Launch notes]] for the original.';
 // Stand-in for Obsidian's setIcon with the few Lucide icons the panel uses.
 const ICONS = {
@@ -105,7 +118,7 @@ const panel = new TabbedPanel(document.getElementById('panel'), tabs, {
 document.getElementById('initial').onclick = () => model.newChat();
 document.getElementById('conversation').onclick = () => {
   model.newChat(); model.start();
-  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'tool', text: '{"path":"Projects/Launch notes.md"}', data: { title: 'Read Launch notes.md', status: 'completed' } }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
+  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'tool', text: '{"path":"Projects/Launch notes.md"}', data: { title: 'Read Launch notes.md', status: 'completed' } }, { role: 'tool', text: '{"query":"product principles examples"}', data: { title: 'web_search', status: 'completed', rawInput: { query: 'product principles examples' } } }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
   model.selection = selection; model.draft = 'What would this look like in practice?';
   model.attachments = [{ kind: 'image', name: 'Screenshot 2026-10-08 at 10.42.13.png', size: 812345, preview: SWATCH }, { kind: 'text', name: 'launch-checklist.md', size: 2210, text: '- [ ] Draft' }];
   model.changed();
