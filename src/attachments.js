@@ -19,7 +19,7 @@ export const ACCEPT = [...IMAGE_TYPES, 'text/*', ...TEXT_TYPES, ...[...TEXT_EXTE
 
 const extensionOf = name => (name.includes('.') ? name.split('.').pop() : name).toLowerCase();
 // A file name is shown and quoted in the prompt label; keep it one line.
-export const cleanName = (name, fallback) => (typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim() : '').slice(0, 200) || fallback;
+export const cleanName = (name, fallback) => (typeof name === 'string' ? name.replace(/\p{Cc}+/gu, ' ').trim() : '').slice(0, 200) || fallback;
 
 export function attachmentKind(file) {
   const type = (file.type || '').toLowerCase();
@@ -106,7 +106,7 @@ async function readText(file, name) {
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()); }
   catch { throw new OperationalError('FILE_NOT_TEXT'); }
   if (text.includes('\u0000')) throw new OperationalError('FILE_NOT_TEXT');
-  return Object.freeze({ kind: 'text', name, size: file.size, text: text.replace(/^﻿/, '') });
+  return Object.freeze({ kind: 'text', name, size: file.size, text: text.replace(/^\uFEFF/, '') });
 }
 
 export async function readAttachment(file) {
