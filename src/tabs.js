@@ -134,7 +134,7 @@ export class TabbedPanel {
     return { pane, panel, tab, select, status, title, close };
   }
   async close(chat) {
-    const unsaved = chat.messages.length || chat.draft || chat.selection || chat.file || BUSY.includes(chat.state);
+    const unsaved = chat.messages.length || chat.draft || chat.selection || chat.file || chat.attachments?.length || BUSY.includes(chat.state);
     if (unsaved && !(await this.actions.confirmClose(chat))) return;
     if (!(await this.tabs.close(chat)) && !this.disposed && this.tabs.chats.includes(chat)) {
       // Disposing removed the panel's subscription with every other listener.

@@ -1,5 +1,11 @@
 export const LIMITS = Object.freeze({
   prompt: 128 * 1024,
+  // Pasted or dropped files. Images travel base64-encoded in one prompt frame,
+  // so their total stays well under the 8 MiB frame after encoding.
+  attachments: 8,
+  images: 4,
+  imageBytes: 5 * 1024 * 1024,
+  imageSource: 50 * 1024 * 1024,
   frame: 8 * 1024 * 1024,
   session: 16 * 1024 * 1024,
   stderr: 64 * 1024,

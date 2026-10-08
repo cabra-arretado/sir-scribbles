@@ -526,3 +526,33 @@ test('when two model changes both time out, the later request\'s late reply wins
     assert.equal(session.state, 'ready');
   }
 });
+
+test('sends images as content blocks only to an agent that advertises them', async t => {
+  const plain = create(t);
+  await plain.start('/fixture');
+  await assert.rejects(plain.prompt('look', [{ mimeType: 'image/png', data: 'AAAA' }]), { code: 'IMAGES_NOT_SUPPORTED' });
+  assert.equal(plain.state, 'ready'); // Refused before anything was sent.
+
+  const session = create(t, 'images');
+  const writes = [];
+  const write = session.write.bind(session);
+  session.write = frame => { writes.push(frame); write(frame); };
+  await session.start('/fixture');
+  await session.prompt('what is this?', [{ mimeType: 'image/png', data: 'AAAA' }]);
+  assert.deepEqual(writes.at(-1).params.prompt, [{ type: 'text', text: 'what is this?' }, { type: 'image', mimeType: 'image/png', data: 'AAAA' }]);
+  await session.prompt('', [{ mimeType: 'image/jpeg', data: 'BBBB' }]);
+  assert.deepEqual(writes.at(-1).params.prompt, [{ type: 'image', mimeType: 'image/jpeg', data: 'BBBB' }]);
+  // Image bytes are not retained; only text counts toward the session budget.
+  assert.equal(session.retainedBytes > 0, true);
+  const before = session.retainedBytes;
+  await session.prompt('', [{ mimeType: 'image/png', data: 'C'.repeat(1024) }]);
+  assert.ok(session.retainedBytes - before < 1024);
+});
+
+test('refuses an image prompt larger than one frame without ending the session', async t => {
+  const session = create(t, 'images', { frame: 64 * 1024 });
+  await session.start('/fixture');
+  await assert.rejects(session.prompt('big', [{ mimeType: 'image/png', data: 'A'.repeat(64 * 1024) }]), { code: 'IMAGE_LIMIT' });
+  assert.equal(session.state, 'ready');
+  assert.equal((await session.prompt('still here')).stopReason, 'end_turn');
+});

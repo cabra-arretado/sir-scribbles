@@ -2,7 +2,7 @@ import { ChatTabs, TabbedPanel } from '../src/tabs.js';
 
 // Development-only UI fixtures. Not bundled into the Obsidian plugin.
 class Fixture {
-  constructor() { this.title = ''; this.history = null; this.loading = false; this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.identity = ''; this.error = ''; this.configOptions = []; this.configPending = false; this.session = { permissions: new Map() }; }
+  constructor() { this.title = ''; this.history = null; this.loading = false; this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.identity = ''; this.error = ''; this.configOptions = []; this.configPending = false; this.session = { permissions: new Map() }; }
   on(event, fn) { this.listeners.add(fn); }
   removeAllListeners() { this.listeners.clear(); }
   async dispose() { this.removeAllListeners(); return true; }
@@ -13,6 +13,8 @@ class Fixture {
   attach(selection) { if (selection.kind === 'file') this.file = selection; else this.selection = selection; this.changed(); }
   removeFile() { this.file = null; this.changed(); }
   removeSelection() { this.selection = null; this.changed(); }
+  addAttachments(items) { this.attachments = [...this.attachments, ...items]; this.error = ''; this.changed(); }
+  removeAttachment(item) { this.attachments = this.attachments.filter(entry => entry !== item); this.changed(); }
   activePermission() { return this.session.permissions.values().next().value ?? null; }
   setError() { this.error = 'Preview only. No agent executable is launched.'; this.changed(); }
   modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
@@ -36,12 +38,12 @@ class Fixture {
     if (listPast) setTimeout(() => { if (!this.messages.length) { this.recent = { entries: PAST }; this.changed(); } }, 500);
   }
   reopen(executable, sessionId, title) { this.recent = null; this.state = 'connected'; this.open(sessionId, title); }
-  newChat() { this.title = ''; this.history = null; this.recent = null; this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.session.permissions.clear(); this.changed(); }
+  newChat() { this.title = ''; this.history = null; this.recent = null; this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.session.permissions.clear(); this.changed(); }
   send() {
     if (this.state === 'connected') this.start();
     if (!this.title) this.title = (this.draft || 'Selection').split('\n')[0].slice(0, 48);
-    this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '' });
-    this.draft = ''; this.selection = null; this.file = null; this.state = 'working'; this.changed();
+    this.messages.push({ role: 'user', text: this.draft || this.selection?.text || '', attachments: this.attachments.map(({ kind, name, size, preview }) => ({ kind, name, size, preview })) });
+    this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.state = 'working'; this.changed();
     // Replay a reply in uneven bursts, the way a real agent streams.
     const reply = { role: 'agent', text: '', timestamp: Date.now() };
     let at = 0;
@@ -80,8 +82,12 @@ const ICONS = {
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
 };
 const setIcon = (node, name) => { node.innerHTML = `<svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] ?? ''}</svg>`; };
+// A tiny locally drawn thumbnail; the fixture loads no remote images.
+const SWATCH = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="#2b2f3a"/><rect x="6" y="8" width="48" height="6" rx="2" fill="#7c5ce0"/><rect x="6" y="20" width="34" height="4" rx="2" fill="#808080"/><rect x="6" y="28" width="40" height="4" rx="2" fill="#808080"/><rect x="6" y="40" width="22" height="12" rx="2" fill="#44cf6e"/></svg>');
 const tabs = new ChatTabs(() => new Fixture());
 tabs.add();
 let model = tabs.active;
@@ -98,7 +104,9 @@ document.getElementById('initial').onclick = () => model.newChat();
 document.getElementById('conversation').onclick = () => {
   model.newChat(); model.start();
   model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'tool', text: '{"path":"Projects/Launch notes.md"}', data: { title: 'Read Launch notes.md', status: 'completed' } }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];
-  model.selection = selection; model.draft = 'What would this look like in practice?'; model.changed();
+  model.selection = selection; model.draft = 'What would this look like in practice?';
+  model.attachments = [{ kind: 'image', name: 'Screenshot 2026-10-08 at 10.42.13.png', size: 812345, preview: SWATCH }, { kind: 'text', name: 'launch-checklist.md', size: 2210, text: '- [ ] Draft' }];
+  model.changed();
 };
 document.getElementById('approval').onclick = () => {
   model.newChat(); model.start(); model.state = 'waiting-for-approval';
