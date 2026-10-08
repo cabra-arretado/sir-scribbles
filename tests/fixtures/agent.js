@@ -42,7 +42,7 @@ input.on('line', line => {
     if (mode === 'invalid-json') { process.stdout.write('{bad}\n'); return; }
     reply(frame.id, {
       protocolVersion: mode === 'wrong-version' ? 2 : 1,
-      agentCapabilities: mode.startsWith('history') ? { loadSession: true, sessionCapabilities: { list: {} } } : {},
+      agentCapabilities: mode.startsWith('history') ? { loadSession: true, sessionCapabilities: { list: {} } } : mode === 'images' ? { promptCapabilities: { image: true } } : {},
       agentInfo: { name: 'fixture', version: 'test' },
     });
   } else if (frame.method === 'session/new') {

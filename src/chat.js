@@ -3,6 +3,7 @@ import { AcpSession } from './acp.js';
 import { launchAgent, validateExecutable, terminateOwnedProcess } from './process.js';
 import { OperationalError, LIMITS, mergeDefined } from './limits.js';
 import { composePrompt } from './draft.js';
+import { checkAttachments } from './attachments.js';
 
 export const ERROR_TEXT = {
   ABSOLUTE_EXECUTABLE_REQUIRED: 'Choose the absolute path to your installed agent executable.',
@@ -15,6 +16,12 @@ export const ERROR_TEXT = {
   OPEN_NOTE_FIRST: 'Open a Markdown note first, then attach it here.',
   PROMPT_LIMIT: 'The prompt and attached context exceed 128 KiB. Shorten the draft or attach less context; nothing was sent.',
   EMPTY_PROMPT: 'Write a prompt or attach context first.',
+  FILE_TYPE_UNSUPPORTED: 'Only images (PNG, JPEG, GIF, WebP) and text files can be attached.',
+  FILE_NOT_TEXT: 'That file is not UTF-8 text, so it was not attached.',
+  FILE_UNREADABLE: 'That file could not be read, so it was not attached.',
+  ATTACHMENT_LIMIT: `Attach at most ${LIMITS.attachments} files to one prompt.`,
+  IMAGE_LIMIT: `Attach at most ${LIMITS.images} images, ${LIMITS.imageBytes / (1024 * 1024)} MB in total after resizing, to one prompt.`,
+  IMAGES_NOT_SUPPORTED: 'This agent does not accept images. Remove them to send; nothing was sent.',
   FRAME_LIMIT: 'The agent exceeded the incoming message limit. The connection was ended.',
   SESSION_LIMIT: 'This conversation exceeded its memory budget. Start a new chat.',
   PERMISSION_LIMIT: 'The agent exceeded the approval queue limit. The connection was ended.',
@@ -53,6 +60,7 @@ export class ChatController extends EventEmitter {
     this.draft = '';
     this.selection = null;
     this.file = null;
+    this.attachments = []; // Replaced, never mutated, so a changed draft is detectable.
     this.identity = '';
     this.configOptions = [];
     this.configPending = false;
@@ -73,7 +81,7 @@ export class ChatController extends EventEmitter {
   attach(selection) {
     const file = selection.kind === 'file' ? selection : this.file;
     const textSelection = selection.kind === 'file' ? this.selection : selection;
-    composePrompt(this.draft, textSelection, file);
+    composePrompt(this.draft, textSelection, file, undefined, this.attachments);
     this.selection = textSelection;
     this.file = file;
     this.error = '';
@@ -81,6 +89,20 @@ export class ChatController extends EventEmitter {
   }
   removeFile() { this.file = null; this.changed(); }
   removeSelection() { this.selection = null; this.changed(); }
+  // Adds read files to the draft, or throws without changing it.
+  addAttachments(items) {
+    const attachments = [...this.attachments, ...items];
+    checkAttachments(attachments);
+    if (items.some(item => item.kind === 'image') && this.supportsImages() === false) throw new OperationalError('IMAGES_NOT_SUPPORTED');
+    composePrompt(this.draft, this.selection, this.file, undefined, attachments);
+    this.attachments = attachments;
+    this.error = '';
+    this.changed();
+  }
+  removeAttachment(item) { this.attachments = this.attachments.filter(entry => entry !== item); this.changed(); }
+  // Unknown until the agent has started and said so.
+  supportsImages() { return this.session?.capabilities ? Boolean(this.session.canPromptImages?.()) : null; }
+  hasDraft() { return Boolean(this.draft.trim() || this.selection || this.file || this.attachments.length); }
   // The session's model choice, if the agent offers one as a config option.
   modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
   activePermission() { return this.session?.permissions.values().next().value ?? null; }
@@ -274,11 +296,12 @@ export class ChatController extends EventEmitter {
     if (this.resetting || this.disposed || this.configPending || this.history?.pending || !['not-started', 'connected', 'ready'].includes(this.state)) return;
     if (this.state === 'not-started' && !executable) return;
     let prompt;
-    try { prompt = composePrompt(this.draft, this.selection, this.file); }
+    try { prompt = composePrompt(this.draft, this.selection, this.file, undefined, this.attachments); }
     catch (error) { this.setError(error.code); return; }
     const originalDraft = this.draft;
     const originalSelection = this.selection;
     const originalFile = this.file;
+    const originalAttachments = this.attachments;
     const sourcePath = this.selection?.path ?? this.file?.path ?? this.getSourcePath();
     if (this.state !== 'ready') {
       // A typed prompt while choosing a past chat starts a new one.
@@ -286,7 +309,7 @@ export class ChatController extends EventEmitter {
       const startupGeneration = this.generation;
       await starting;
       if (this.disposed || this.resetting || this.generation !== startupGeneration || this.state !== 'ready') return;
-      if (this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile) {
+      if (this.draft !== originalDraft || this.selection !== originalSelection || this.file !== originalFile || this.attachments !== originalAttachments) {
         this.error = 'The draft changed while the agent was starting. Review it and send again.';
         this.changed();
         return;
@@ -294,24 +317,29 @@ export class ChatController extends EventEmitter {
     }
     const session = this.session;
     const generation = this.generation;
-    if (!this.retainUi(Buffer.byteLength(prompt))) return;
+    const images = originalAttachments.filter(item => item.kind === 'image');
+    if (images.length && !session.canPromptImages?.()) { this.setError('IMAGES_NOT_SUPPORTED'); return; }
+    // The transcript keeps names and thumbnails only, never the image data.
+    const attachments = originalAttachments.map(({ kind, name, size, preview = '' }) => ({ kind, name, size, preview }));
+    if (!this.retainUi(Buffer.byteLength(prompt) + attachments.reduce((total, item) => total + item.name.length + item.preview.length, 0))) return;
     this.turnSourcePath = sourcePath;
-    if (!this.title) this.title = titleOf(originalDraft) || titleOf(sourcePath);
-    this.messages.push({ role: 'user', text: prompt, timestamp: Date.now() });
+    if (!this.title) this.title = titleOf(originalDraft) || titleOf(attachments[0]?.name ?? '') || titleOf(sourcePath);
+    this.messages.push({ role: 'user', text: prompt, attachments, timestamp: Date.now() });
     // Preserve a failure snapshot in the user entry; retain the composer draft
     // until successful settlement and never overwrite a newer draft.
     this.draft = '';
     this.selection = null;
     this.file = null;
+    this.attachments = [];
     this.error = '';
     this.forceAvailable = false;
-    const turn = session.prompt(prompt);
+    const turn = session.prompt(prompt, images.map(({ mimeType, data }) => ({ mimeType, data })));
     this.changed();
     try {
       await turn;
     } catch (error) {
       if (generation === this.generation && !this.disposed) {
-        if (!this.draft && !this.selection && !this.file) { this.draft = originalDraft; this.selection = originalSelection; this.file = originalFile; }
+        if (!this.hasDraft()) { this.draft = originalDraft; this.selection = originalSelection; this.file = originalFile; this.attachments = originalAttachments; }
         this.setError(error.code);
       }
     } finally {
@@ -392,6 +420,7 @@ export class ChatController extends EventEmitter {
       this.draft = '';
       this.selection = null;
       this.file = null;
+      this.attachments = [];
     }
     this.identity = '';
     this.configOptions = [];
@@ -416,6 +445,7 @@ export class ChatController extends EventEmitter {
     this.draft = '';
     this.selection = null;
     this.file = null;
+    this.attachments = [];
     this.messages = [];
     this.turnSourcePath = '';
     this.tools.clear();

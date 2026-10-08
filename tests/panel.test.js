@@ -563,3 +563,50 @@ test('after a refused reopen the panel shows the past chats and Start a new chat
   assert.ok(panel.historyArea.textContent.includes('Older chat'));
   assert.ok([...panel.historyArea.querySelectorAll('button')].some(button => button.textContent === 'Start a new chat'));
 });
+
+test('pasted files become chips: images as a thumbnail with an X, text with its name', async t => {
+  const { dom, model, panel } = create(t);
+  const paste = files => {
+    const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { files };
+    panel.composer.dispatchEvent(event);
+    return event;
+  };
+  // Plain-text pastes are left to the browser.
+  assert.equal(paste([]).defaultPrevented, false);
+  const event = paste([new File(['png'], 'shot.png', { type: 'image/png' }), new File(['# hi'], 'notes.md')]);
+  assert.equal(event.defaultPrevented, true);
+  await tick();
+  panel.render();
+  const chips = [...panel.attachmentArea.querySelectorAll('.sir-scribbles-attachment')];
+  assert.deepEqual(chips.map(chip => chip.className), ['sir-scribbles-attachment is-image', 'sir-scribbles-attachment is-text']);
+  assert.equal(chips[0].querySelector('.sir-scribbles-attachment-name'), null);
+  assert.equal(chips[1].querySelector('.sir-scribbles-attachment-name').textContent, 'notes.md');
+  assert.equal(panel.send.disabled, false);
+  chips[0].querySelector('.sir-scribbles-attachment-remove').click();
+  panel.render();
+  assert.deepEqual(model.attachments.map(item => item.name), ['notes.md']);
+  // A refused file names the problem and leaves the draft as it was.
+  paste([new File(['PK'], 'a.zip', { type: 'application/zip' })]);
+  await tick();
+  assert.equal(model.error, 'Only images (PNG, JPEG, GIF, WebP) and text files can be attached.');
+  assert.equal(model.attachments.length, 1);
+});
+
+test('dropping files highlights the composer and attaches them', async t => {
+  const { dom, model, panel } = create(t);
+  const composer = panel.composer.parentElement;
+  const drag = (type, files = []) => {
+    const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+    event.dataTransfer = { types: ['Files'], files, dropEffect: 'none' };
+    composer.dispatchEvent(event);
+    return event;
+  };
+  drag('dragenter');
+  assert.ok(composer.classList.contains('is-dragover'));
+  assert.equal(drag('dragover').defaultPrevented, true);
+  drag('drop', [new File(['text'], 'a.txt', { type: 'text/plain' })]);
+  assert.ok(!composer.classList.contains('is-dragover'));
+  await tick();
+  assert.deepEqual(model.attachments.map(item => item.text), ['text']);
+});

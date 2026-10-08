@@ -2,6 +2,7 @@ import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
 import { displayPrompt } from './display.js';
+import { ACCEPT, formatBytes, readAttachment } from './attachments.js';
 
 // A card can appear, or replace one just decided, under the pointer. Its
 // buttons wait this long so a double-click never approves an unread action.
@@ -30,6 +31,8 @@ export class ChatPanel {
     this.lastCard = null;
     this.lastQueued = -1;
     this.lastSelection = undefined;
+    this.lastAttachments = undefined;
+    this.dragDepth = 0;
     this.lastPath = null;
     this.lastModel = null;
     this.lastHistory = undefined;
@@ -86,7 +89,7 @@ export class ChatPanel {
     // Tabs open new chats instead; a single panel resets in place.
     if (this.actions.confirmReset) {
       this.reset = this.iconButton('plus', 'New chat', async () => {
-        if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file) && !(await this.actions.confirmReset())) return;
+        if ((this.model.messages.length || this.model.draft || this.model.selection || this.model.file || this.model.attachments?.length) && !(await this.actions.confirmReset())) return;
         await this.model.newChat();
       }, 'sir-scribbles-reset');
       header.append(this.reset);
@@ -151,7 +154,27 @@ export class ChatPanel {
         if (!event.repeat && !this.send.disabled) void this.model.send(this.actions.getPath().trim());
       }
     });
+    // Files arrive by paste, drop or the picker. Plain text pastes as usual.
+    this.composer.addEventListener('paste', event => {
+      const files = [...(event.clipboardData?.files ?? [])];
+      if (!files.length) return;
+      event.preventDefault();
+      void this.addFiles(files);
+    });
+    this.bindDrop(composer);
+    this.picker = this.el('input', 'sir-scribbles-file-input');
+    this.picker.type = 'file';
+    this.picker.multiple = true;
+    this.picker.accept = ACCEPT;
+    this.picker.hidden = true;
+    this.picker.tabIndex = -1;
+    this.picker.addEventListener('change', () => {
+      const files = [...(this.picker.files ?? [])];
+      this.picker.value = '';
+      if (files.length) void this.addFiles(files);
+    });
     const toolbar = this.el('div', 'sir-scribbles-composer-toolbar');
+    this.attachUpload = this.iconButton('paperclip', 'Attach images or text files', () => this.picker.click(), 'sir-scribbles-attach');
     this.attach = this.iconButton('quote', 'Attach selection', async () => {
       await this.attachContext('attachSelection', 'SELECT_TEXT_FIRST');
     }, 'sir-scribbles-attach');
@@ -168,8 +191,10 @@ export class ChatPanel {
     this.setIcon(this.send, 'arrow-up', 'Send');
     this.stop = this.button('', () => this.model.stop(), 'sir-scribbles-send sir-scribbles-stop');
     this.setIcon(this.stop, 'square', 'Stop');
-    toolbar.append(this.attach, this.attachFile, this.modelPicker, this.force, this.stop, this.send);
-    composer.append(this.selectionArea, this.composer, toolbar);
+    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.modelPicker, this.force, this.stop, this.send);
+    this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
+    this.attachmentArea.setAttribute('aria-label', 'Attached files');
+    composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
     footer.append(composer);
     this.container.append(footer);
   }
@@ -211,6 +236,49 @@ export class ChatPanel {
     }
   }
 
+  // Drag-and-drop from Finder or another app. Only file drags are claimed;
+  // dragging text into the prompt keeps its default behavior.
+  bindDrop(target) {
+    const carriesFiles = event => [...(event.dataTransfer?.types ?? [])].includes('Files');
+    const leave = () => { this.dragDepth = 0; target.classList.remove('is-dragover'); };
+    target.addEventListener('dragenter', event => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault();
+      this.dragDepth++;
+      target.classList.add('is-dragover');
+    });
+    target.addEventListener('dragover', event => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    });
+    target.addEventListener('dragleave', event => {
+      if (!carriesFiles(event)) return;
+      if (--this.dragDepth <= 0) leave();
+    });
+    target.addEventListener('drop', event => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      leave();
+      const files = [...(event.dataTransfer.files ?? [])];
+      if (files.length) void this.addFiles(files);
+    });
+  }
+
+  // Reads every file before adding any, so one refused file leaves the draft
+  // as it was and names the problem.
+  async addFiles(files) {
+    const generation = this.model.generation;
+    try {
+      const items = [];
+      for (const file of files) items.push(await readAttachment(file));
+      if (!this.disposed && !this.model.resetting && generation === this.model.generation) this.model.addAttachments(items);
+    } catch (error) {
+      if (!this.disposed && generation === this.model.generation) this.model.setError(error.code || 'FILE_UNREADABLE');
+    }
+  }
+
   schedule() {
     if (this.timer || this.disposed) return;
     this.timer = setTimeout(() => { this.timer = null; if (!this.disposed) this.render(); }, 40);
@@ -219,7 +287,7 @@ export class ChatPanel {
     const model = this.model;
     const canStart = (model.state === 'not-started' && Boolean(this.actions.getPath().trim())) || model.state === 'connected';
     this.send.disabled = !(model.state === 'ready' || canStart) || model.resetting || model.disposed || model.configPending ||
-      Boolean(model.history?.pending) || !(model.draft.trim() || model.selection || model.file);
+      Boolean(model.history?.pending) || !(model.draft.trim() || model.selection || model.file || model.attachments?.length);
     this.send.title = canStart ? 'Start a new chat and send (Enter)' : 'Send (Enter)';
     this.start.disabled = model.state !== 'not-started' || model.resetting || this.startPending;
     this.browse.disabled = this.start.disabled;
@@ -229,6 +297,7 @@ export class ChatPanel {
     if (this.reset) this.reset.disabled = model.resetting || model.disposed;
     this.attach.disabled = model.resetting || model.disposed;
     this.attachFile.disabled = model.resetting || model.disposed;
+    this.attachUpload.disabled = model.resetting || model.disposed;
     this.attachFile.setAttribute('aria-pressed', String(Boolean(model.file)));
     this.attachFile.setAttribute('aria-label', model.file ? 'Remove attached note' : 'Attach current note');
     this.attachFile.classList.toggle('is-active', Boolean(model.file));
@@ -260,6 +329,7 @@ export class ChatPanel {
     this.renderControls();
     this.renderMessages();
     this.renderSelection();
+    this.renderAttachments();
     this.renderPermission();
     this.renderModel();
     this.renderHistory();
@@ -384,7 +454,9 @@ export class ChatPanel {
           row = { root, body, summary, label, rendered: '' };
         } else {
           body = this.el('div', message.role === 'agent' ? 'sir-scribbles-markdown' : 'sir-scribbles-plain-text');
-          root.append(label, body, meta);
+          root.append(label, body);
+          if (message.attachments?.length) root.append(this.attachmentList(message.attachments));
+          root.append(meta);
           row = { root, body, label, rendered: '' };
         }
         this.rows.set(message, row);
@@ -392,7 +464,12 @@ export class ChatPanel {
       }
       if (row.summary) row.summary.textContent = `${typeof message.data.title === 'string' ? message.data.title : 'Tool'} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
       if (message.role === 'agent') this.updateReply(row, message);
-      else if (message.text !== row.rendered) { row.body.textContent = message.role === 'user' ? displayPrompt(message.text) : message.text; row.rendered = message.text; }
+      else if (message.text !== row.rendered) {
+        // Attached files show as chips; their text stays out of the bubble.
+        row.body.textContent = message.role === 'user' ? displayPrompt(message.text, { files: !message.attachments?.length }) : message.text;
+        row.body.hidden = !row.body.textContent;
+        row.rendered = message.text;
+      }
     }
     const last = this.model.messages.at(-1);
     for (const [message, row] of this.rows) {
@@ -512,6 +589,45 @@ export class ChatPanel {
     details.append(summary, this.el('pre', 'sir-scribbles-selection-text', selection.text));
     selectionCard.append(details);
     this.selectionArea.append(selectionCard);
+  }
+
+  // Chips for files in the draft, each removable.
+  renderAttachments() {
+    const attachments = this.model.attachments ?? [];
+    if (attachments === this.lastAttachments) return;
+    this.lastAttachments = attachments;
+    this.attachmentArea.replaceChildren();
+    this.attachmentArea.hidden = !attachments.length;
+    if (attachments.length) this.attachmentArea.append(this.attachmentList(attachments, item => this.model.removeAttachment(item)));
+  }
+
+  // Images show only a thumbnail drawn locally from the file, with the name
+  // as its tooltip; text files show an icon, name and size.
+  attachmentList(attachments, remove = null) {
+    const list = this.el('ul', 'sir-scribbles-attachment-list');
+    for (const item of attachments) {
+      const chip = this.el('li', `sir-scribbles-attachment is-${item.kind}`);
+      chip.title = `${item.name} · ${formatBytes(item.size)}`;
+      if (item.kind === 'image' && item.preview) {
+        const thumb = this.el('img', 'sir-scribbles-attachment-thumb');
+        thumb.src = item.preview;
+        thumb.alt = item.name;
+        chip.append(thumb);
+      } else {
+        const icon = this.el('span', 'sir-scribbles-attachment-icon');
+        if (this.actions.setIcon) this.actions.setIcon(icon, item.kind === 'image' ? 'image' : 'file-text');
+        if (item.kind === 'image') icon.setAttribute('aria-label', item.name);
+        chip.append(icon);
+      }
+      if (item.kind === 'text') {
+        const text = this.el('span', 'sir-scribbles-attachment-text');
+        text.append(this.el('span', 'sir-scribbles-attachment-name', item.name), this.el('span', 'sir-scribbles-attachment-size', formatBytes(item.size)));
+        chip.append(text);
+      }
+      if (remove) chip.append(this.iconButton('x', `Remove ${item.name}`, () => remove(item), 'sir-scribbles-attachment-remove'));
+      list.append(chip);
+    }
+    return list;
   }
 
   renderPermission() {

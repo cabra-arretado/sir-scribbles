@@ -403,16 +403,26 @@ export class AcpSession extends EventEmitter {
     return this.open(cwd, sessionId);
   }
 
-  async prompt(text) {
+  canPromptImages() { return isRecord(this.capabilities?.promptCapabilities) && this.capabilities.promptCapabilities.image === true; }
+
+  // Images go only to an agent that advertised them. Their bytes are not
+  // retained after the request is written, so only the text counts toward the
+  // session budget; an oversized frame is refused before anything is sent.
+  async prompt(text, images = []) {
     if (this.state !== 'ready') throw new OperationalError('PROMPT_NOT_AVAILABLE');
-    if (typeof text !== 'string' || !text.trim()) throw new OperationalError('EMPTY_PROMPT');
+    if (typeof text !== 'string' || (!text.trim() && !images.length)) throw new OperationalError('EMPTY_PROMPT');
     if (Buffer.byteLength(text) > this.limits.prompt) throw new OperationalError('PROMPT_LIMIT');
+    if (images.length && !this.canPromptImages()) throw new OperationalError('IMAGES_NOT_SUPPORTED');
+    const prompt = text.trim() ? [{ type: 'text', text }] : [];
+    for (const image of images) prompt.push({ type: 'image', mimeType: image.mimeType, data: image.data });
+    // Leave room for the JSON-RPC envelope around the content blocks.
+    if (images.length && Buffer.byteLength(JSON.stringify(prompt)) > this.limits.frame - 4096) throw new OperationalError('IMAGE_LIMIT');
     try { this.retain(Buffer.byteLength(text)); }
     catch (error) { this.fail(error.code); throw error; }
     this.toolCalls.clear();
     this.setState('working');
     try {
-      const response = await this.request('session/prompt', { sessionId: this.sessionId, prompt: [{ type: 'text', text }] });
+      const response = await this.request('session/prompt', { sessionId: this.sessionId, prompt });
       if (!isRecord(response) || typeof response.stopReason !== 'string') throw new OperationalError('INVALID_PROMPT_RESPONSE');
       return response;
     } catch (error) {

@@ -17,7 +17,8 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
 - **Requires a Kiro account.** Kiro needs its own login; the plugin stores no
   credentials and has no payment features.
 - **Network access through Kiro.** The plugin itself makes no network requests.
-  Kiro sends your prompts and attached note text to its AI provider.
+  Kiro sends your prompts, attached note text, and any images or text files you
+  attach to its AI provider.
 - **Files outside the vault.** Kiro starts in the vault folder but can read,
   write or run anything its own permissions allow, including outside the vault.
   Actions Kiro asks about appear in the sidebar for approval; actions already
@@ -70,6 +71,15 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
    current note's vault-relative path. A checkmark shows it is attached. Kiro can
    read the saved file using its own tools; unsaved edits are not sent. The file path and a selected-text snapshot can be attached together.
    Remove each separately, or click the checked file button to clear the file path.
+   To attach images or text files, paste them into the message field (a
+   screenshot or a file copied in Finder), drop them on it, or click the paperclip.
+   Images (PNG, JPEG, GIF, WebP) appear as thumbnails and go to the agent as
+   images; larger ones are scaled to 2048 px on the longest side first. Text
+   files (Markdown, code, CSV, JSON and similar UTF-8 files) appear with their
+   name, and their contents are quoted into the prompt. Hover a thumbnail or
+   file and click its **×** to remove it. A prompt carries up to 8 files, of which
+   up to 4 images and 5 MB of images in total. Images need an agent that
+   accepts them; if it does not, nothing is sent and the draft is kept.
 4. Click **Send** or press Enter. Shift+Enter inserts a newline. Bot replies render
    Markdown; prompts, context previews, and tool activity stay
    plain text. Messages have timestamps and Copy controls that preserve the source.

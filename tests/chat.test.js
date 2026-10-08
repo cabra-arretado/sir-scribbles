@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { ChatController } from '../src/chat.js';
+import { ChatController, ERROR_TEXT } from '../src/chat.js';
 import { composePrompt, captureSelection, captureFile } from '../src/draft.js';
 import { LIMITS, OperationalError } from '../src/limits.js';
 import { FrameReader } from '../src/acp.js';
@@ -11,8 +11,9 @@ class Session extends EventEmitter {
   canLoad() { return this.loadable ?? true; }
   async connect() { this.emit('state', 'connected'); return { identity: { name: 'fixture', version: '3' } }; }
   async open(cwd, sessionId) { this.opened = sessionId; this.emit('state', 'ready'); return { configOptions: this.configOptions ?? [] }; }
-  prompt(text) {
+  prompt(text, images = []) {
     this.sent.push(text);
+    (this.sentImages ??= []).push(images);
     this.emit('state', 'working');
     return new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
   }
@@ -496,4 +497,55 @@ test('a refused reopen leaves the past-chat picker and its new-chat choice on sc
   await controller.open();
   assert.equal(controller.state, 'ready');
   assert.equal(controller.history, null);
+});
+
+test('attached images go as content blocks; the transcript keeps names and thumbnails only', async () => {
+  const { controller, session } = create();
+  session.capabilities = { promptCapabilities: { image: true } };
+  session.canPromptImages = () => true;
+  const image = Object.freeze({ kind: 'image', name: 'shot.png', size: 3, mimeType: 'image/png', data: 'AAAA', preview: 'data:image/jpeg;base64,BB' });
+  const text = Object.freeze({ kind: 'text', name: 'a.md', size: 5, text: 'alpha' });
+  controller.addAttachments([image, text]);
+  const sending = controller.send('/fixture');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(session.sent[0], /^Attached file \(a\.md\):\n--- BEGIN ATTACHED FILE [0-9a-f]{12} ---\nalpha\n/);
+  assert.deepEqual(session.sentImages[0], [{ mimeType: 'image/png', data: 'AAAA' }]);
+  assert.deepEqual(controller.messages[0].attachments, [
+    { kind: 'image', name: 'shot.png', size: 3, preview: 'data:image/jpeg;base64,BB' }, { kind: 'text', name: 'a.md', size: 5, preview: '' },
+  ]);
+  assert.equal(controller.title, 'shot.png');
+  assert.deepEqual(controller.attachments, []);
+  session.complete();
+  await sending;
+});
+
+test('an agent without image support keeps the draft and sends nothing', async () => {
+  const { controller, session } = create();
+  const image = Object.freeze({ kind: 'image', name: 'shot.png', size: 3, mimeType: 'image/png', data: 'AAAA', preview: '' });
+  controller.setDraft('look');
+  controller.addAttachments([image]); // Unknown before the agent starts.
+  await controller.send('/fixture');
+  assert.equal(controller.error, ERROR_TEXT.IMAGES_NOT_SUPPORTED);
+  assert.deepEqual(session.sent, []);
+  assert.deepEqual(controller.attachments, [image]);
+  assert.equal(controller.draft, 'look');
+  // Once the agent has said so, images are refused as they are added.
+  session.capabilities = {};
+  session.canPromptImages = () => false;
+  assert.throws(() => controller.addAttachments([image]), { code: 'IMAGES_NOT_SUPPORTED' });
+  controller.removeAttachment(image);
+  assert.deepEqual(controller.attachments, []);
+});
+
+test('a failed turn restores attached files with the draft', async () => {
+  const { controller, session } = create();
+  const text = Object.freeze({ kind: 'text', name: 'a.md', size: 5, text: 'alpha' });
+  controller.addAttachments([text]);
+  const sending = controller.send('/fixture');
+  await new Promise(resolve => setImmediate(resolve));
+  session.reject(new OperationalError('AGENT_REQUEST_FAILED'));
+  await sending;
+  assert.deepEqual(controller.attachments, [text]);
+  assert.throws(() => controller.addAttachments(Array(LIMITS.attachments).fill(text)), { code: 'ATTACHMENT_LIMIT' });
+  assert.deepEqual(controller.attachments, [text]);
 });

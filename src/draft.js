@@ -38,14 +38,19 @@ export function captureFile(view, eligible) {
 // quoted block early and continue as if the user had written the rest.
 const selectionMarker = () => randomBytes(6).toString('hex');
 
-export function composePrompt(text, selection, file = null, marker = selectionMarker()) {
+// Images are sent as their own content blocks, so a prompt of only images
+// has no text. Text files are quoted after the note context, in order.
+export function composePrompt(text, selection, file = null, marker = selectionMarker(), attachments = []) {
   const parts = [];
   if (text.trim()) parts.push(text);
   if (file) parts.push(`Attached note path: ${file.path}`);
   if (selection?.kind === 'file') parts.push(`Attached note path: ${selection.path}`);
   else if (selection) parts.push(`Selected note text (${selection.path}, lines ${selection.from}–${selection.to}):\n--- BEGIN SELECTED TEXT ${marker} ---\n${selection.text}\n--- END SELECTED TEXT ${marker} ---`);
+  for (const item of attachments) {
+    if (item.kind === 'text') parts.push(`Attached file (${item.name}):\n--- BEGIN ATTACHED FILE ${marker} ---\n${item.text}\n--- END ATTACHED FILE ${marker} ---`);
+  }
   const prompt = parts.join('\n\n');
-  if (!prompt) throw new OperationalError('EMPTY_PROMPT');
+  if (!prompt && !attachments.some(item => item.kind === 'image')) throw new OperationalError('EMPTY_PROMPT');
   if (Buffer.byteLength(prompt, 'utf8') > LIMITS.prompt) throw new OperationalError('PROMPT_LIMIT');
   return prompt;
 }

@@ -31,7 +31,7 @@ class CloseModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
   onOpen() {
     this.titleEl.textContent = 'Close this chat?';
-    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and selection. The agent keeps its own history, so you may be able to reopen the chat from Open a past chat.' });
+    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and its attachments. The agent keeps its own history, so you may be able to reopen the chat from Open a past chat.' });
     new Setting(this.contentEl)
       .addButton(button => button.setButtonText('Keep chat').onClick(() => this.close()))
       .addButton(button => button.setButtonText('Close chat').setCta().onClick(() => { this.accepted = true; this.close(); }));
