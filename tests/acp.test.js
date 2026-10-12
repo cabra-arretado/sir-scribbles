@@ -646,7 +646,24 @@ test('mode advertisements are bounded, deduplicated and require a valid current 
   assert.deepEqual(options.options.map(option => option.value), ['reviewer', 'planner']);
   assert.equal(options.options[0].description, 'Review notes');
   assert.equal(sanitizeModes({ currentModeId: 'missing', availableModes: [{ id: 'reviewer', name: 'Reviewer' }] }), null);
-  assert.equal(sanitizeModes({ currentModeId: 'planner', availableModes: [
+  const truncated = sanitizeModes({ currentModeId: 'planner', availableModes: [
     { id: 'reviewer', name: 'Reviewer' }, { id: 'planner', name: 'Planner' },
-  ] }, { ...LIMITS, configValues: 1 }), null);
+  ] }, { ...LIMITS, configValues: 1 });
+  assert.equal(truncated.currentValue, 'planner');
+  assert.deepEqual(truncated.options, [{ value: 'planner', name: 'Planner' }]);
+});
+
+test('a successful mode reply cannot report success after the transport has closed', async t => {
+  for (const mode of ['modes', 'agents']) {
+    const session = create(t, mode);
+    await session.start('/fixture');
+    const request = session.request.bind(session);
+    session.request = async (...args) => {
+      const result = await request(...args);
+      // Reproduce closure after the reply settles but before setMode resumes.
+      void session.close();
+      return result;
+    };
+    await assert.rejects(session.setMode('reviewer'), { code: 'TRANSPORT_CLOSED' });
+  }
 });

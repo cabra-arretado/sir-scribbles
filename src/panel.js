@@ -21,10 +21,10 @@ const STATES = {
 // DOM rendering only. Bot Markdown uses a restricted token renderer; note and
 // tool content stays plain text. No raw HTML or automatic resource loading.
 export class ChatPanel {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, runParallel, canRunParallel, approvalDelay = APPROVAL_DELAY_MS }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, runParallel, canRunParallel, parallelTitle, approvalDelay = APPROVAL_DELAY_MS }) {
     this.container = container;
     this.model = controller;
-    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, runParallel, canRunParallel };
+    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, runParallel, canRunParallel, parallelTitle };
     this.document = container.ownerDocument;
     this.rows = new Map();
     this.timer = null;
@@ -204,12 +204,13 @@ export class ChatPanel {
     this.stop = this.button('', () => this.model.stop(), 'sir-scribbles-send sir-scribbles-stop');
     this.setIcon(this.stop, 'square', 'Stop');
     this.parallel = this.iconButton('git-fork', 'Run draft in a parallel chat', () => { void this.actions.runParallel?.(this.model); }, 'sir-scribbles-parallel');
-    this.configBar = this.el('div', 'sir-scribbles-config-bar');
-    this.configBar.append(this.labelFor(this.agentPicker, 'Agent'), this.agentPicker,
-      this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.labelFor(this.effortPicker, 'Effort'), this.effortPicker);
-    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.parallel, this.force, this.stop, this.send);
+    const taskActions = this.el('div', 'sir-scribbles-task-actions');
+    taskActions.append(this.parallel, this.stop, this.send);
+    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.agentPicker, 'Agent'), this.agentPicker,
+      this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.labelFor(this.effortPicker, 'Effort'), this.effortPicker,
+      this.force, taskActions);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
-    composer.append(this.selectionArea, this.attachmentArea, this.composer, this.configBar, toolbar, this.picker);
+    composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
     footer.append(composer);
     this.container.append(footer);
   }
@@ -342,8 +343,10 @@ export class ChatPanel {
     this.modelPicker.disabled = model.state !== 'ready' || model.configPending || model.resetting;
     this.effortPicker.disabled = this.modelPicker.disabled;
     this.agentPicker.disabled = this.modelPicker.disabled;
-    this.parallel.hidden = !this.actions.runParallel;
+    this.parallel.hidden = !this.actions.runParallel || !model.hasDraft() ||
+      !['ready', 'working', 'waiting-for-approval'].includes(model.state);
     this.parallel.disabled = !this.actions.getPath().trim() || !this.actions.canRunParallel?.(model);
+    this.parallel.title = this.actions.parallelTitle?.() ?? 'Run draft in a parallel chat';
     this.force.hidden = !model.forceAvailable;
     this.force.disabled = model.resetting;
   }
@@ -368,9 +371,10 @@ export class ChatPanel {
     this.renderAttachments();
     this.renderPermission();
     this.renderPicker(this.modelPicker, this.model.modelOption());
-    this.renderPicker(this.agentPicker, this.model.modeOption?.());
+    const mode = this.model.modeOption?.();
+    // Hide a choice with no alternatives without losing the active profile.
+    this.renderPicker(this.agentPicker, mode?.options.length > 1 ? mode : null);
     this.renderPicker(this.effortPicker, this.model.effortOption());
-    this.configBar.hidden = this.agentPicker.hidden && this.modelPicker.hidden && this.effortPicker.hidden;
     this.renderHistory();
   }
 

@@ -146,6 +146,9 @@ test('parallel draft starts a separate session with the selected agent while the
   const source = tabs.add();
   await source.start('/fixture-agent');
   await source.setMode('reviewer');
+  // A single advertised profile still needs to be carried to the new process.
+  source.session.setConfigOptions(source.configOptions.map(option => option.category === 'mode'
+    ? { ...option, options: option.options.filter(entry => entry.value === 'reviewer') } : option));
   source.setDraft('Main task');
   const main = source.send();
   assert.equal(source.state, 'working');
@@ -288,4 +291,44 @@ test('a failed parallel executable validation keeps draft and attachments in the
   assert.equal(child.messages.length, 0);
   assert.equal(child.state, 'not-started');
   assert.equal(launches(), 1);
+});
+
+test('fork control appears only for a started chat with a draft and explains the shared tab limit', async t => {
+  const dom = new JSDOM('<main></main>');
+  const tabs = new ChatTabs(() => new ChatController('/fixture-vault'), 2);
+  const source = tabs.add();
+  const root = dom.window.document.querySelector('main');
+  const view = new TabbedPanel(root, tabs, {
+    getPath: () => '/fixture/kiro', savePath: async () => {}, attachSelection: async () => {}, attachFile: async () => {},
+    copyText: async () => {}, confirmClose: async () => true,
+  });
+  t.after(async () => { view.dispose(); await tabs.dispose(); dom.window.close(); });
+  const panel = view.entries.get(source).panel;
+  assert.equal(panel.parallel.hidden, true);
+  source.setDraft('Task');
+  panel.renderControls();
+  assert.equal(panel.parallel.hidden, true, 'an unstarted chat has no fork control');
+  source.state = 'ready';
+  panel.renderControls();
+  assert.equal(panel.parallel.hidden, false);
+  assert.equal(panel.parallel.disabled, false);
+  assert.equal(panel.parallel.parentElement, panel.send.parentElement);
+  assert.equal(panel.parallel.parentElement, panel.stop.parentElement);
+  assert.notEqual(panel.parallel.parentElement, panel.attach.parentElement);
+  assert.equal(panel.modelPicker.parentElement, panel.attach.parentElement, 'pickers stay inline in the toolbar');
+  const other = tabs.add();
+  view.render();
+  assert.equal(panel.parallel.hidden, false);
+  assert.equal(panel.parallel.disabled, true);
+  assert.match(panel.parallel.title, /Up to 2 chats.*Close one/);
+  await tabs.close(other);
+  view.render();
+  assert.equal(panel.parallel.disabled, false, 'closing another tab updates source capacity');
+  source.setDraft('');
+  panel.renderControls();
+  assert.equal(panel.parallel.hidden, true);
+  source.file = { kind: 'file', path: 'note.md' };
+  source.state = 'working';
+  panel.renderControls();
+  assert.equal(panel.parallel.hidden, false, 'explicit context counts as a draft during a turn');
 });

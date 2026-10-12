@@ -140,7 +140,8 @@ API; the sidebar displays the activity Kiro reports in the parent chat.
 To run an independent task while another is working, write it in the composer
 and click the fork button, **Run draft in a parallel chat**. This moves the
 draft and explicit attachments into a new tab and starts it on the selected
-agent with Kiro's default model. It receives no conversation history from the
+agent. The new tab becomes active and uses Kiro's default model and effort.
+It receives no conversation history from the
 original chat. If startup or agent selection fails, the draft stays in the new
 tab for review. Edits made during startup are kept and require another Send.
 Each parallel chat has its own ACP session, process, approvals, Stop and cleanup,

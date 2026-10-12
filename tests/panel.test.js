@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { ChatController } from '../src/chat.js';
 import { ChatPanel } from '../src/panel.js';
 import { composePrompt } from '../src/draft.js';
+import { readFile } from 'node:fs/promises';
 
 function create(t, { frames = false, approvalDelay = 0 } = {}) {
   const dom = new JSDOM('<main></main>', { url: 'https://fixture.test' });
@@ -848,4 +849,33 @@ test('native delegation is visible as subagent activity and its approval names t
   assert.ok(panel.permissionArea.textContent.includes('Review <img src="https://never.test"> notes'));
   assert.equal(panel.permissionArea.querySelectorAll('b, img, script').length, 0);
   assert.equal(model.session.permissions.size, 1);
+});
+
+test('single-choice agent picker stays hidden without losing its selected profile', t => {
+  const { model, panel } = create(t);
+  model.state = 'ready';
+  model.modes = { id: 'mode', name: 'Agent', type: 'select', currentValue: 'reviewer', options: [{ value: 'reviewer', name: 'Reviewer' }] };
+  panel.render();
+  assert.equal(panel.agentPicker.hidden, true);
+  assert.equal(model.modeOption().currentValue, 'reviewer');
+  model.configOptions = [{ ...model.modes, category: 'mode' }];
+  panel.render();
+  assert.equal(panel.agentPicker.hidden, true);
+  assert.equal(model.modeOption().currentValue, 'reviewer');
+});
+
+test('picker styling never applies to agent replies', async t => {
+  const { model, root, panel, dom } = create(t);
+  const style = dom.window.document.createElement('style');
+  style.textContent = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
+  dom.window.document.head.append(style);
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'A long reply with its own layout.' } });
+  panel.render();
+  const reply = root.querySelector('.sir-scribbles-agent');
+  assert.notEqual(reply, panel.agentPicker);
+  assert.equal(panel.agentPicker.classList.contains('sir-scribbles-agent'), false);
+  assert.equal(reply.classList.contains('sir-scribbles-agent-picker'), false);
+  assert.equal(dom.window.getComputedStyle(panel.agentPicker).height, '24px');
+  assert.notEqual(dom.window.getComputedStyle(reply).height, '24px');
+  assert.equal(reply.parentElement, panel.transcript);
 });

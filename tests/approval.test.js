@@ -57,3 +57,16 @@ test('subagent consent describes delegation even when the standard tool kind say
   const arbitrary = describeApproval({ kind: 'execute', title: 'invoke_sub_agent' }, '/vault');
   assert.equal(arbitrary.heading, 'Run a command');
 });
+
+test('delegation approval checks tool metadata when request metadata has no delegation identity', () => {
+  const call = { toolCallId: 'delegate', kind: 'execute', rawInput: { agent_name: 'reviewer', prompt: 'Review auth' },
+    _meta: { kiro: { toolId: 'invoke_sub_agent' } } };
+  for (const meta of [{ trace: 'unrelated' }, { kiro: { consentRound: 1 } }, {}]) {
+    const action = describeApproval(call, '/vault', meta);
+    assert.equal(action.heading, 'Delegate to a subagent');
+    assert.equal(action.detail, 'reviewer');
+    assert.equal(action.previews[0].text, 'Review auth');
+  }
+  // Request consent identifies the actual target when both sources exist.
+  assert.equal(describeApproval(call, '/vault', { kiro: { consent: { capability: 'subagent', resource: 'tester' } } }).detail, 'tester');
+});

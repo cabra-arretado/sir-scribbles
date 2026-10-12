@@ -38,6 +38,7 @@ export const ERROR_TEXT = {
   LOAD_NOT_SUPPORTED: 'This agent cannot reopen past chats. Start a new chat instead.',
   CHAT_LIMIT: `Up to ${LIMITS.chats} chats can run at once. Close one before starting another task.`,
   PARALLEL_MODE_UNAVAILABLE: 'The new chat did not confirm the selected agent. Choose an agent here and send the draft when ready.',
+  PARALLEL_DRAFT_CHANGED: 'The draft changed while the parallel chat was starting. Review it and send again.',
 };
 // One line, short enough for a tab.
 const titleOf = text => {

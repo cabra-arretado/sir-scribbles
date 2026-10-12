@@ -196,11 +196,11 @@
   font-family: var(--font-interface); font-size: var(--font-ui-small); line-height: var(--line-height-normal);
 }
 .sir-scribbles .sir-scribbles-prompt:focus, .sir-scribbles .sir-scribbles-prompt:focus-visible { box-shadow: none; outline: none; }
-.sir-scribbles-composer-toolbar { display: flex; align-items: center; gap: var(--size-2-2); padding: 0 var(--size-4-1) var(--size-4-1); }
-.sir-scribbles-config-bar { display: flex; align-items: center; gap: var(--size-2-2); padding: 0 var(--size-4-1) var(--size-4-1); }
+.sir-scribbles-composer-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--size-2-2); padding: 0 var(--size-4-1) var(--size-4-1); }
+.sir-scribbles-task-actions { display: flex; align-items: center; gap: var(--size-2-2); margin-left: auto; flex-shrink: 0; }
 .sir-scribbles .sir-scribbles-attach.is-active { color: var(--text-accent); background: var(--background-modifier-hover); }
 .sir-scribbles .sir-scribbles-model, .sir-scribbles .sir-scribbles-agent-picker {
-  flex: 1; min-width: 0; max-width: 100%; height: 24px; padding-top: 0; padding-bottom: 0; font-size: var(--font-ui-smaller);
+  min-width: 0; max-width: 50%; height: 24px; padding-top: 0; padding-bottom: 0; font-size: var(--font-ui-smaller);
   color: var(--text-muted); background-color: transparent; box-shadow: none; text-overflow: ellipsis;
 }
 .sir-scribbles .sir-scribbles-model:hover:not(:disabled), .sir-scribbles .sir-scribbles-agent-picker:hover:not(:disabled) { color: var(--text-normal); background-color: var(--background-modifier-hover); }

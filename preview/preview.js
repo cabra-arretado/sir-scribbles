@@ -10,6 +10,7 @@ class Fixture {
   off(event, fn) { this.listeners.delete(fn); }
   changed() { for (const fn of this.listeners) fn(); }
   setDraft(text) { this.draft = text; }
+  hasDraft() { return Boolean(this.draft.trim() || this.selection || this.file || this.attachments.length); }
   attach(selection) { if (selection.kind === 'file') this.file = selection; else this.selection = selection; this.changed(); }
   removeFile() { this.file = null; this.changed(); }
   removeSelection() { this.selection = null; this.changed(); }

@@ -41,7 +41,7 @@ function preview(label, value) {
 }
 
 export function describeApproval(toolCall, vault, meta) {
-  const delegated = delegation(toolCall, meta ?? toolCall._meta);
+  const delegated = delegation(toolCall, meta) ?? delegation(toolCall, toolCall._meta);
   if (delegated) return {
     icon: 'git-fork', heading: 'Delegate to a subagent', detail: delegated.agent,
     sentence: `wants to delegate a task${delegated.agent ? ` to ${delegated.agent}` : ''}.`,

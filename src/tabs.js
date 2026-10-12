@@ -35,7 +35,7 @@ export class ChatTabs extends EventEmitter {
     return !this.disposed && !this.full && this.chats.includes(chat) && !chat.disposed && !chat.resetting &&
       !chat.closing && !chat.configPending && !chat.reading &&
       ['ready', 'working', 'waiting-for-approval'].includes(chat.state) &&
-      Boolean(chat.draft.trim() || chat.selection || chat.file || chat.attachments?.length);
+      chat.hasDraft();
   }
   // A fresh ACP session in its own owned process. It receives only the draft
   // and explicit attachments, never the source chat's history or approvals.
@@ -67,8 +67,7 @@ export class ChatTabs extends EventEmitter {
       }
     }
     if (chat.reading || chat.configPending || chat.draft !== draft || chat.selection !== selection || chat.file !== file || chat.attachments !== attachments) {
-      chat.error = 'The draft changed while the parallel chat was starting. Review it and send again.';
-      chat.changed();
+      chat.setError('PARALLEL_DRAFT_CHANGED');
       return chat;
     }
     await chat.send();
@@ -167,6 +166,7 @@ export class TabbedPanel {
       ...this.actions, confirmReset: undefined,
       runParallel: source => this.tabs.runParallel(source, this.actions.getPath().trim()),
       canRunParallel: source => this.tabs.canRunParallel(source),
+      parallelTitle: () => this.tabs.full ? `Up to ${this.tabs.limit} chats at once. Close one to start another.` : 'Run draft in a parallel chat',
     });
     const tab = this.el('div', 'sir-scribbles-tab');
     const select = this.el('button', 'sir-scribbles-tab-select');
@@ -214,6 +214,7 @@ export class TabbedPanel {
       entry.tab.classList.toggle('is-active', active);
       entry.close.disabled = Boolean(chat.closing);
       entry.pane.hidden = !active;
+      // Tab capacity is shared: adding/closing a tab changes every fork button.
       entry.panel.renderControls();
     }
     // Re-appending keeps the strip in chat order with the add button last.

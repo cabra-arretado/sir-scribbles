@@ -2,11 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
-import { build } from 'esbuild';
+import { buildPreview } from '../scripts/preview-bundle.js';
 
 test('the browser preview bundles without Node runtime imports', async () => {
-  await build({ entryPoints: ['preview/preview.js'], bundle: true, format: 'esm', platform: 'browser', write: false,
-    alias: { 'node:events': './preview/events.js' } });
+  await buildPreview();
 });
 
 // The preview's fixture must keep up with the controller interface the panel

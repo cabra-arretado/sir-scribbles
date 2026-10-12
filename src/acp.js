@@ -53,7 +53,14 @@ export function sanitizeModes(input, limits = LIMITS) {
     const option = configValue({ ...mode, value: mode.id });
     if (option) options.push(option);
   }
-  if (!options.some(option => option.value === input.currentModeId)) return null;
+  if (!options.some(option => option.value === input.currentModeId)) {
+    // The active profile must survive the display limit, even if advertised last.
+    const current = input.availableModes.find(mode => isRecord(mode) && mode.id === input.currentModeId && label(mode.name));
+    const option = current && configValue({ ...current, value: current.id });
+    if (!option || limits.configValues < 1) return null;
+    if (options.length >= limits.configValues) options.pop();
+    options.push(option);
+  }
   return { id: 'mode', name: 'Agent', type: 'select', category: 'mode', currentValue: input.currentModeId, options };
 }
 
@@ -408,8 +415,6 @@ export class AcpSession extends EventEmitter {
     this.setState('starting');
     this.startupTimer = setTimeout(() => this.fail('STARTUP_TIMEOUT'), sessionId ? this.limits.loadMs : this.limits.startupMs);
     try {
-      const configStamp = this.configStamp;
-      const modeStamp = this.modeStamp;
       let session;
       if (sessionId) {
         // Known up front, so replayed updates are delivered as they arrive.
@@ -424,11 +429,10 @@ export class AcpSession extends EventEmitter {
       }
       if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
       this.sessionId = sessionId ?? session.sessionId;
-      if (this.configStamp === configStamp) this.setConfigOptions(session.configOptions);
-      if (this.modeStamp === modeStamp) {
-        this.modes = sanitizeModes(session.modes, this.limits);
-        this.emit('modes', this.modes);
-      }
+      // State updates are buffered during open; apply the snapshot first.
+      this.setConfigOptions(session.configOptions);
+      this.modes = sanitizeModes(session.modes, this.limits);
+      this.emit('modes', this.modes);
       const startupUpdates = this.startupUpdates;
       this.startupUpdates = [];
       for (const params of startupUpdates) {
@@ -515,7 +519,10 @@ export class AcpSession extends EventEmitter {
     if (this.state !== 'ready') throw new OperationalError('CONFIG_NOT_AVAILABLE');
     const option = this.modeOption();
     if (!option?.options.some(entry => entry.value === value)) throw new OperationalError('CONFIG_VALUE_UNKNOWN');
-    if (this.configOptions.includes(option)) return this.setConfigOption(option.id, value);
+    if (this.configOptions.includes(option)) {
+      await this.setConfigOption(option.id, value);
+      return;
+    }
     const seq = ++this.modeSeq;
     const confirmed = result => {
       if (!this.transportClosed && seq > this.modeStamp && isRecord(result)) this.setCurrentMode(value, seq);
@@ -527,9 +534,9 @@ export class AcpSession extends EventEmitter {
       if (this.transportClosed) throw error;
       throw new OperationalError(error.code === 'REQUEST_TIMEOUT' ? 'CONFIG_TIMEOUT' : 'CONFIG_REJECTED');
     }
+    if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
     if (!isRecord(result)) throw new OperationalError('CONFIG_REJECTED');
     confirmed(result);
-    return this.modes;
   }
 
   stop() {
