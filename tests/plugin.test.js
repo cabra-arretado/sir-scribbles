@@ -163,14 +163,15 @@ test('floating chat is off by default and its preference is per device and vault
   assert.equal(document.querySelector('.sir-scribbles-floating-launcher'), null);
   await plugin.setFloating({ enabled: true, opacity: 5 });
   assert.equal(plugin.floating.enabled, true);
-  assert.deepEqual(JSON.parse(stored.get('sir-scribbles:floating:/fixture-vault')), { enabled: true, opacity: 40 });
+  assert.deepEqual(JSON.parse(stored.get('sir-scribbles:floating:/fixture-vault')), { enabled: true, opacity: 40, activeOpacity: 100, size: null });
 });
 
 test('floating chat shows the same chats without the sidebar and keeps them while hidden', async t => {
   const { plugin, document, launches, writes } = create(t, FLOATING);
   await plugin.onload();
   const launcher = document.querySelector('.sir-scribbles-floating-launcher');
-  assert.equal(launcher.parentElement.className, 'status-bar-item', 'the launcher lives in the status bar');
+  assert.ok(launcher.parentElement.classList.contains('status-bar-item'), 'the launcher lives in the status bar');
+  assert.ok(launcher.parentElement.classList.contains('sir-scribbles-floating-item'), 'its item gets status bar sizing');
   assert.equal(plugin.tabs, null, 'enabling creates no chat until the window opens');
   await plugin.floating.show();
   const tabs = plugin.tabs;
@@ -240,4 +241,26 @@ test('unloading removes the floating chat and ends its chats', async t => {
   await plugin.shutdown();
   assert.equal(document.querySelector('.sir-scribbles-floating, .sir-scribbles-floating-launcher, .status-bar-item'), null);
   assert.equal(tabs.disposed, true);
+});
+
+test('the floating window size is remembered per device and restored on load', async t => {
+  const { plugin, stored } = create(t, { 'sir-scribbles:floating:/fixture-vault': JSON.stringify({ enabled: true, size: { width: 520, height: 480 } }) });
+  await plugin.onload();
+  assert.equal(plugin.floating.window.style.width, '520px');
+  assert.equal(plugin.floating.window.style.height, '480px');
+  const grip = plugin.floating.window.querySelector('.sir-scribbles-floating-resize');
+  grip.dispatchEvent(new grip.ownerDocument.defaultView.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  assert.deepEqual(JSON.parse(stored.get('sir-scribbles:floating:/fixture-vault')).size, { width: 540, height: 480 });
+});
+
+test('both opacity settings are stored and applied to the window', async t => {
+  const { plugin, stored } = create(t, FLOATING);
+  await plugin.onload();
+  const style = plugin.floating.window.style;
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-opacity'), '0.7');
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-active-opacity'), '1');
+  await plugin.setFloating({ activeOpacity: 95 });
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-active-opacity'), '0.95');
+  assert.equal(JSON.parse(stored.get('sir-scribbles:floating:/fixture-vault')).activeOpacity, 95);
 });

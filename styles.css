@@ -275,6 +275,14 @@ summary.sir-scribbles-selection-header { cursor: var(--cursor); }
 /* Floating chat: a status bar launcher and a translucent window that becomes
    opaque while it is in use. The window sits clear of the status bar. */
 .sir-scribbles-floating-launcher { position: relative; }
+/* In the status bar, match its own items: Obsidian gives every button an
+   input's height and padding, which would make the whole bar taller. */
+.status-bar-item.sir-scribbles-floating-item { display: inline-flex; align-items: center; padding: 0; }
+.status-bar-item .sir-scribbles-floating-launcher.clickable-icon {
+  --icon-size: var(--icon-xs); height: auto; min-height: 0; padding: 0 var(--size-2-2); line-height: 1;
+  color: var(--text-muted); background: none; box-shadow: none;
+}
+.status-bar-item .sir-scribbles-floating-launcher.clickable-icon:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 /* Without a status bar (the UI preview), the launcher floats in the corner. */
 .sir-scribbles-floating-launcher.clickable-icon.is-floating {
   position: fixed; right: var(--size-4-4); bottom: var(--size-4-4); z-index: var(--layer-popover, 30);
@@ -290,20 +298,31 @@ summary.sir-scribbles-selection-header { cursor: var(--cursor); }
 .sir-scribbles-floating-launcher[data-activity="approval"]::after { background: var(--color-yellow); }
 .sir-scribbles-floating {
   position: fixed; right: var(--size-4-4); bottom: calc(var(--size-4-4) + 32px); z-index: var(--layer-popover, 30);
-  display: flex; flex-direction: column; width: min(420px, calc(100vw - 2 * var(--size-4-4)));
-  height: min(620px, calc(100vh - 120px)); overflow: hidden;
+  display: flex; flex-direction: column; width: 420px; height: 620px; min-width: 300px; min-height: 320px;
+  max-width: calc(100vw - 2 * var(--size-4-4)); max-height: calc(100vh - 120px); overflow: hidden;
   border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l);
   background: var(--background-primary); box-shadow: var(--shadow-l, 0 8px 32px rgba(0, 0, 0, .35));
   opacity: var(--sir-scribbles-floating-opacity, .85); transition: opacity .15s ease;
 }
 .sir-scribbles-floating[hidden] { display: none; }
 .sir-scribbles-floating.above-launcher { bottom: calc(var(--size-4-4) + 52px); }
-.sir-scribbles-floating:is(:hover, :focus-within) { opacity: 1; }
+.sir-scribbles-floating:is(:hover, :focus-within) { opacity: var(--sir-scribbles-floating-active-opacity, 1); }
 .sir-scribbles-floating-header {
   display: flex; align-items: center; gap: var(--size-2-2); flex-shrink: 0; padding: var(--size-2-2) var(--size-4-2) var(--size-2-2) var(--size-4-3);
   border-bottom: 1px solid var(--background-modifier-border); background: var(--background-secondary);
 }
 .sir-scribbles-floating-title { flex: 1; font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); color: var(--text-muted); }
 .sir-scribbles-floating-body { flex: 1; min-height: 0; }
+/* Resize grip in the top-left corner, the side that moves. */
+.sir-scribbles-floating .sir-scribbles-floating-resize {
+  position: absolute; top: 0; left: 0; z-index: 1; width: 14px; height: 14px; min-height: 0; padding: 0;
+  border-radius: var(--radius-l) 0 0 0; background: none; box-shadow: none; cursor: nwse-resize; touch-action: none;
+}
+.sir-scribbles-floating-resize::before {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 6px; height: 6px;
+  border-top: 2px solid var(--text-faint); border-left: 2px solid var(--text-faint); border-top-left-radius: 2px; opacity: .6;
+}
+.sir-scribbles-floating-resize:is(:hover, :focus-visible)::before { border-color: var(--text-accent); opacity: 1; }
+.sir-scribbles-floating.is-resizing { opacity: var(--sir-scribbles-floating-active-opacity, 1); transition: none; user-select: none; }
 .sir-scribbles-elsewhere { display: flex; flex-direction: column; align-items: center; gap: var(--size-4-2); margin: auto; padding: var(--size-4-6); text-align: center; color: var(--text-muted); }
 @media (prefers-reduced-motion: reduce) { .sir-scribbles-floating { transition: none; } }

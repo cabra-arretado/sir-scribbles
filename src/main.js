@@ -36,8 +36,9 @@ function loadFloating(app) {
   const key = floatingKey(app);
   try {
     const value = JSON.parse((key && globalThis.localStorage?.getItem(key)) || '{}');
-    return { enabled: value?.enabled === true, opacity: clampOpacity(value?.opacity ?? OPACITY.initial) };
-  } catch { return { enabled: false, opacity: OPACITY.initial }; }
+    const size = Number.isFinite(value?.size?.width) && Number.isFinite(value?.size?.height) ? { width: value.size.width, height: value.size.height } : null;
+    return { enabled: value?.enabled === true, opacity: clampOpacity(value?.opacity), activeOpacity: clampOpacity(value?.activeOpacity, OPACITY.active), size };
+  } catch { return { enabled: false, opacity: OPACITY.initial, activeOpacity: OPACITY.active, size: null }; }
 }
 function storeFloating(app, preferences) {
   const key = floatingKey(app);
@@ -49,7 +50,7 @@ class CloseModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
   onOpen() {
     this.titleEl.textContent = 'Close this chat?';
-    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and its attachments. The agent keeps its own history, so you may be able to reopen the chat from Open a past chat.' });
+    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and its attachments. The agent keeps its own history, so you may be able to reopen the chat from Past chats.' });
     new Setting(this.contentEl)
       .addButton(button => button.setButtonText('Keep chat').onClick(() => this.close()))
       .addButton(button => button.setButtonText('Close chat').setCta().onClick(() => { this.accepted = true; this.close(); }));
@@ -124,8 +125,12 @@ class ScribblesSettings extends PluginSettingTab {
       .addToggle(toggle => toggle.setValue(this.plugin.floatingPreferences.enabled).onChange(async value => {
         await this.plugin.setFloating({ enabled: value });
       }));
-    new Setting(this.containerEl).setName('Floating chat opacity')
-      .setDesc('How opaque the floating window is while you are not using it. It becomes fully opaque on hover or while typing.')
+    new Setting(this.containerEl).setName('Floating chat opacity while in use')
+      .setDesc('How opaque the floating window is while the pointer is over it or you are typing in it.')
+      .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.activeOpacity)
+        .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ activeOpacity: value }); }));
+    new Setting(this.containerEl).setName('Floating chat opacity when not in use')
+      .setDesc('How opaque the floating window is while the pointer is elsewhere and you are not typing in it, so your notes show through.')
       .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.opacity)
         .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ opacity: value }); }));
   }
@@ -148,10 +153,12 @@ export default class SirScribblesPlugin extends Plugin {
       onShow: body => this.showFloating(body),
       onHide: () => this.hideFloating(),
       onSidebar: async () => { await this.floating.hide({ focus: false }); await this.openChat(); },
+      onResize: size => { void this.setFloating({ size }); },
       // The status bar is always visible and never covers a note or the sidebar.
       launcherHost: () => this.addStatusBarItem(),
     });
-    this.floating.setOpacity(this.floatingPreferences.opacity);
+    this.floating.setOpacity({ idle: this.floatingPreferences.opacity, active: this.floatingPreferences.activeOpacity });
+    this.floating.setSize(this.floatingPreferences.size);
     this.registerView(VIEW_TYPE, leaf => new ScribblesView(leaf, this));
     this.addRibbonIcon('messages-square', 'Open Sir Scribbles', () => { void this.openChat(); });
     this.addCommand({ id: 'open-chat', name: 'Open chat', callback: () => { void this.openChat(); } });
@@ -270,8 +277,9 @@ export default class SirScribblesPlugin extends Plugin {
   async setFloating(changes) {
     this.floatingPreferences = { ...this.floatingPreferences, ...changes };
     this.floatingPreferences.opacity = clampOpacity(this.floatingPreferences.opacity);
+    this.floatingPreferences.activeOpacity = clampOpacity(this.floatingPreferences.activeOpacity, OPACITY.active);
     storeFloating(this.app, this.floatingPreferences);
-    this.floating.setOpacity(this.floatingPreferences.opacity);
+    this.floating.setOpacity({ idle: this.floatingPreferences.opacity, active: this.floatingPreferences.activeOpacity });
     if (this.floatingPreferences.enabled === this.floating.enabled || !this.vaultPath()) return;
     if (this.floatingPreferences.enabled) { this.floating.enable(); return; }
     await this.floating.disable();

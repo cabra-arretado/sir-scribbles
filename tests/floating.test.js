@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { FloatingChat, OPACITY, clampOpacity } from '../src/floating.js';
+import { FloatingChat, OPACITY, SIZE, clampOpacity } from '../src/floating.js';
 
 function create(t, actions = {}) {
   const dom = new JSDOM('<body></body>');
@@ -68,8 +68,22 @@ test('opacity is bounded so the window never becomes invisible', t => {
   assert.equal(clampOpacity('nope'), OPACITY.initial);
   assert.equal(clampOpacity(72), 70);
   floating.enable();
-  floating.setOpacity(10);
+  floating.setOpacity({ idle: 10 });
   assert.equal(floating.window.style.getPropertyValue('--sir-scribbles-floating-opacity'), String(OPACITY.min / 100));
+  assert.equal(floating.window.style.getPropertyValue('--sir-scribbles-floating-active-opacity'), '1', 'in use defaults to opaque');
+});
+
+test('in-use and idle opacity are set independently', t => {
+  const { floating } = create(t);
+  floating.setOpacity({ idle: 60, active: 90 });
+  floating.enable();
+  const style = floating.window.style;
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-opacity'), '0.6');
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-active-opacity'), '0.9');
+  floating.setOpacity({ active: 300 });
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-opacity'), '0.6', 'changing one keeps the other');
+  assert.equal(style.getPropertyValue('--sir-scribbles-floating-active-opacity'), '1');
+  assert.equal(clampOpacity(undefined, OPACITY.active), 100);
 });
 
 test('the launcher shows busy chats, and approvals above all', t => {
@@ -103,4 +117,48 @@ test('a launcher host keeps the button out of the workspace and is removed with 
   await floating.disable();
   assert.equal(document.body.children.length, 0);
   assert.ok(dom);
+});
+
+test('dragging the top-left grip grows the window up and left, within bounds', async t => {
+  const resized = [];
+  const { floating, dom } = create(t, { onResize: size => resized.push(size) });
+  floating.enable();
+  await floating.show();
+  floating.setSize({ width: 420, height: 400 });
+  const grip = floating.window.querySelector('.sir-scribbles-floating-resize');
+  assert.equal(grip.getAttribute('aria-label'), 'Resize floating chat');
+  const pointer = (type, x, y) => grip.dispatchEvent(new dom.window.MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true }));
+  pointer('pointerdown', 500, 300);
+  assert.ok(floating.window.classList.contains('is-resizing'), 'opaque while resizing');
+  pointer('pointermove', 400, 250);
+  assert.equal(floating.window.style.width, '520px');
+  assert.equal(floating.window.style.height, '450px');
+  pointer('pointermove', 2000, 2000);
+  assert.equal(floating.window.style.width, `${SIZE.minWidth}px`);
+  assert.equal(floating.window.style.height, `${SIZE.minHeight}px`);
+  pointer('pointerup', 2000, 2000);
+  assert.equal(floating.window.classList.contains('is-resizing'), false);
+  assert.deepEqual(resized, [{ width: SIZE.minWidth, height: SIZE.minHeight }]);
+  pointer('pointermove', 0, 0);
+  assert.equal(floating.window.style.width, `${SIZE.minWidth}px`, 'moving after release does nothing');
+});
+
+test('arrow keys on the grip resize in steps; the size never exceeds the viewport', async t => {
+  const resized = [];
+  const { floating, dom } = create(t, { onResize: size => resized.push(size) });
+  floating.enable();
+  floating.setSize({ width: 400, height: 400 });
+  const grip = floating.window.querySelector('.sir-scribbles-floating-resize');
+  const key = name => grip.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+  key('ArrowLeft');
+  key('ArrowUp');
+  assert.deepEqual(resized.at(-1), { width: 400 + SIZE.step, height: 400 + SIZE.step });
+  key('ArrowRight');
+  key('ArrowDown');
+  assert.deepEqual(resized.at(-1), { width: 400, height: 400 });
+  const huge = floating.setSize({ width: 99999, height: 99999 });
+  assert.equal(huge.width, dom.window.innerWidth - 32);
+  assert.equal(huge.height, Math.max(SIZE.minHeight, dom.window.innerHeight - 120));
+  assert.equal(floating.setSize(null), null);
+  assert.equal(floating.window.style.width, '');
 });
