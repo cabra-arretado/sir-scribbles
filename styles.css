@@ -206,15 +206,14 @@
 .sir-scribbles .sir-scribbles-model:hover:not(:disabled), .sir-scribbles .sir-scribbles-agent-picker:hover:not(:disabled) { color: var(--text-normal); background-color: var(--background-modifier-hover); }
 .sir-scribbles .sir-scribbles-effort { max-width: 30%; }
 .sir-scribbles .sir-scribbles-send {
-  margin-left: auto; height: 28px; width: 28px; min-height: 0; padding: 0; border-radius: 50%; flex-shrink: 0;
+  height: 28px; width: 28px; min-height: 0; padding: 0; border-radius: 50%; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center; --icon-size: var(--icon-s); box-shadow: none;
 }
 .sir-scribbles .sir-scribbles-send:disabled { opacity: .4; cursor: default; }
 .sir-scribbles .sir-scribbles-stop { background: var(--background-modifier-hover); color: var(--text-normal); }
 .sir-scribbles .sir-scribbles-stop svg { fill: currentColor; }
-.sir-scribbles .sir-scribbles-danger { margin-left: auto; height: 24px; padding: 0 var(--size-4-2); font-size: var(--font-ui-smaller); color: var(--text-error); background: transparent; box-shadow: none; }
+.sir-scribbles .sir-scribbles-danger { height: 24px; padding: 0 var(--size-4-2); font-size: var(--font-ui-smaller); color: var(--text-error); background: transparent; box-shadow: none; }
 .sir-scribbles .sir-scribbles-danger:hover { background: rgba(var(--color-red-rgb), .1); }
-.sir-scribbles .sir-scribbles-danger:not([hidden]) ~ .sir-scribbles-send { margin-left: 0; }
 
 /* Attached context: compact chips above the prompt. */
 .sir-scribbles-selection { display: flex; flex-direction: column; gap: var(--size-2-2); padding: var(--size-4-1) var(--size-4-1) 0; }

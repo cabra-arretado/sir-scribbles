@@ -205,10 +205,9 @@ export class ChatPanel {
     this.setIcon(this.stop, 'square', 'Stop');
     this.parallel = this.iconButton('git-fork', 'Run draft in a parallel chat', () => { void this.actions.runParallel?.(this.model); }, 'sir-scribbles-parallel');
     const taskActions = this.el('div', 'sir-scribbles-task-actions');
-    taskActions.append(this.parallel, this.stop, this.send);
+    taskActions.append(this.force, this.parallel, this.stop, this.send);
     toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.agentPicker, 'Agent'), this.agentPicker,
-      this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.labelFor(this.effortPicker, 'Effort'), this.effortPicker,
-      this.force, taskActions);
+      this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.labelFor(this.effortPicker, 'Effort'), this.effortPicker, taskActions);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
     composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
     footer.append(composer);
@@ -346,7 +345,8 @@ export class ChatPanel {
     this.parallel.hidden = !this.actions.runParallel || !model.hasDraft() ||
       !['ready', 'working', 'waiting-for-approval'].includes(model.state);
     this.parallel.disabled = !this.actions.getPath().trim() || !this.actions.canRunParallel?.(model);
-    this.parallel.title = this.actions.parallelTitle?.() ?? 'Run draft in a parallel chat';
+    // The accessible name is also Obsidian's tooltip, so it carries the limit reason.
+    this.parallel.setAttribute('aria-label', this.actions.parallelTitle?.() ?? 'Run draft in a parallel chat');
     this.force.hidden = !model.forceAvailable;
     this.force.disabled = model.resetting;
   }

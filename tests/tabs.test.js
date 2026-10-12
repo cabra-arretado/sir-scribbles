@@ -314,13 +314,15 @@ test('fork control appears only for a started chat with a draft and explains the
   assert.equal(panel.parallel.disabled, false);
   assert.equal(panel.parallel.parentElement, panel.send.parentElement);
   assert.equal(panel.parallel.parentElement, panel.stop.parentElement);
+  assert.equal(panel.force.parentElement, panel.send.parentElement, 'force stop sits with the task actions');
   assert.notEqual(panel.parallel.parentElement, panel.attach.parentElement);
   assert.equal(panel.modelPicker.parentElement, panel.attach.parentElement, 'pickers stay inline in the toolbar');
   const other = tabs.add();
   view.render();
   assert.equal(panel.parallel.hidden, false);
   assert.equal(panel.parallel.disabled, true);
-  assert.match(panel.parallel.title, /Up to 2 chats.*Close one/);
+  assert.match(panel.parallel.getAttribute('aria-label'), /Up to 2 chats.*Close one/);
+  assert.equal(panel.parallel.hasAttribute('title'), false, 'one tooltip, from the accessible name');
   await tabs.close(other);
   view.render();
   assert.equal(panel.parallel.disabled, false, 'closing another tab updates source capacity');
