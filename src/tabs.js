@@ -31,6 +31,49 @@ export class ChatTabs extends EventEmitter {
     this.active = chat;
     this.emit('change');
   }
+  canRunParallel(chat) {
+    return !this.disposed && !this.full && this.chats.includes(chat) && !chat.disposed && !chat.resetting &&
+      !chat.closing && !chat.configPending && !chat.reading &&
+      ['ready', 'working', 'waiting-for-approval'].includes(chat.state) &&
+      Boolean(chat.draft.trim() || chat.selection || chat.file || chat.attachments?.length);
+  }
+  // A fresh ACP session in its own owned process. It receives only the draft
+  // and explicit attachments, never the source chat's history or approvals.
+  async runParallel(source, executable) {
+    if (this.full) { source.setError('CHAT_LIMIT'); return null; }
+    if (!executable || !this.canRunParallel(source)) return null;
+    try { source.composeDraft(); }
+    catch (error) { source.setError(error.code); return null; }
+    const mode = source.modeOption?.()?.currentValue;
+    const chat = this.add();
+    chat.draft = source.draft;
+    chat.selection = source.selection;
+    chat.file = source.file;
+    chat.attachments = [...(source.attachments ?? [])];
+    const draft = chat.draft, selection = chat.selection, file = chat.file, attachments = chat.attachments;
+    source.clearComposer();
+    source.changed();
+    chat.changed();
+    const starting = chat.start(executable);
+    const generation = chat.generation;
+    await starting;
+    if (chat.disposed || chat.resetting || chat.generation !== generation || chat.state !== 'ready') return chat;
+    if (mode) {
+      await chat.setMode(mode);
+      if (chat.disposed || chat.resetting || chat.generation !== generation || chat.state !== 'ready') return chat;
+      if (chat.error || chat.modeOption()?.currentValue !== mode) {
+        if (!chat.error) chat.setError('PARALLEL_MODE_UNAVAILABLE');
+        return chat;
+      }
+    }
+    if (chat.reading || chat.configPending || chat.draft !== draft || chat.selection !== selection || chat.file !== file || chat.attachments !== attachments) {
+      chat.error = 'The draft changed while the parallel chat was starting. Review it and send again.';
+      chat.changed();
+      return chat;
+    }
+    await chat.send();
+    return chat;
+  }
   // Ends the chat's agent. A chat whose cleanup is uncertain stays open so
   // the user can force stop it; the last tab is replaced by a fresh one.
   async close(chat) {
@@ -120,7 +163,11 @@ export class TabbedPanel {
     const pane = this.el('div');
     pane.setAttribute('role', 'tabpanel');
     this.panes.append(pane);
-    const panel = new ChatPanel(pane, chat, { ...this.actions, confirmReset: undefined });
+    const panel = new ChatPanel(pane, chat, {
+      ...this.actions, confirmReset: undefined,
+      runParallel: source => this.tabs.runParallel(source, this.actions.getPath().trim()),
+      canRunParallel: source => this.tabs.canRunParallel(source),
+    });
     const tab = this.el('div', 'sir-scribbles-tab');
     const select = this.el('button', 'sir-scribbles-tab-select');
     select.type = 'button';
@@ -167,6 +214,7 @@ export class TabbedPanel {
       entry.tab.classList.toggle('is-active', active);
       entry.close.disabled = Boolean(chat.closing);
       entry.pane.hidden = !active;
+      entry.panel.renderControls();
     }
     // Re-appending keeps the strip in chat order with the add button last.
     this.strip.append(...this.tabs.chats.map(chat => this.entries.get(chat).tab), this.add);

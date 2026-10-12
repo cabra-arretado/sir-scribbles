@@ -1,6 +1,7 @@
 // Browser-safe: turns an approval request into plain language for the card.
 // Everything here is display only; the decision still uses the agent's own
 // option IDs, and the full request stays available as technical details.
+import { delegation } from './display.js';
 
 // ACP tool kinds: an icon, a short heading and what the action does.
 const KINDS = {
@@ -39,7 +40,14 @@ function preview(label, value) {
   return { label, text: shown, lines: lines.length, truncated: shown.length < value.length };
 }
 
-export function describeApproval(toolCall, vault) {
+export function describeApproval(toolCall, vault, meta) {
+  const delegated = delegation(toolCall, meta ?? toolCall._meta);
+  if (delegated) return {
+    icon: 'git-fork', heading: 'Delegate to a subagent', detail: delegated.agent,
+    sentence: `wants to delegate a task${delegated.agent ? ` to ${delegated.agent}` : ''}.`,
+    paths: [], previews: delegated.task ? [preview('Task', delegated.task)] : [], cwd: null,
+    vague: !delegated.agent && !delegated.task,
+  };
   const kind = KINDS[toolCall.kind] ?? OTHER;
   const input = toolCall.rawInput !== null && typeof toolCall.rawInput === 'object' && !Array.isArray(toolCall.rawInput) ? toolCall.rawInput : {};
   const paths = [];

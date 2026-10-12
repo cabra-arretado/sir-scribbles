@@ -47,3 +47,13 @@ test('long content is shortened in the card only', () => {
   assert.equal(block.text.split('\n').length, 40);
   assert.equal(block.truncated, true);
 });
+
+test('subagent consent describes delegation even when the standard tool kind says execute', () => {
+  const action = describeApproval({ kind: 'execute', toolCallId: 'delegate', rawInput: { prompt: 'Review auth' } }, '/vault',
+    { kiro: { consent: { capability: 'subagent', resource: 'reviewer' } } });
+  assert.equal(action.heading, 'Delegate to a subagent');
+  assert.equal(action.sentence, 'wants to delegate a task to reviewer.');
+  assert.deepEqual(action.previews.map(item => [item.label, item.text]), [['Task', 'Review auth']]);
+  const arbitrary = describeApproval({ kind: 'execute', title: 'invoke_sub_agent' }, '/vault');
+  assert.equal(arbitrary.heading, 'Run a command');
+});

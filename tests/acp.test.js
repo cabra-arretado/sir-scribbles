@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { AcpSession, FrameReader, sanitizeConfigOptions } from '../src/acp.js';
+import { AcpSession, FrameReader, sanitizeConfigOptions, sanitizeModes } from '../src/acp.js';
 import { LIMITS } from '../src/limits.js';
 import { ChatController } from '../src/chat.js';
 import { validateExecutable, AGENT_ARGS } from '../src/process.js';
@@ -555,4 +555,98 @@ test('refuses an image prompt larger than one frame without ending the session',
   await assert.rejects(session.prompt('big', [{ mimeType: 'image/png', data: 'A'.repeat(64 * 1024) }]), { code: 'IMAGE_LIMIT' });
   assert.equal(session.state, 'ready');
   assert.equal((await session.prompt('still here')).stopReason, 'end_turn');
+});
+
+test('agent selection prefers advertised config options and never sends unknown modes', async t => {
+  const session = create(t, 'agents');
+  const writes = [];
+  const write = session.write.bind(session);
+  session.write = frame => { writes.push(frame); write(frame); };
+  await session.start('/fixture');
+  assert.equal(session.modeOption().id, 'agent-choice');
+  await assert.rejects(session.setMode('invented'), { code: 'CONFIG_VALUE_UNKNOWN' });
+  assert.equal(writes.some(frame => frame.method === 'session/set_mode'), false);
+  await session.setMode('reviewer');
+  assert.deepEqual(writes.find(frame => frame.method === 'session/set_config_option').params,
+    { sessionId: 'fixture-session', configId: 'agent-choice', value: 'reviewer' });
+  assert.equal(session.modeOption().currentValue, 'reviewer');
+  session.deliver({ sessionUpdate: 'current_mode_update', currentModeId: 'planner' });
+  assert.equal(session.modeOption().currentValue, 'planner');
+  assert.equal(session.modes.currentValue, 'planner');
+  session.deliver({ sessionUpdate: 'current_mode_update', currentModeId: 'invented' });
+  assert.equal(session.modeOption().currentValue, 'planner');
+  const turn = session.prompt('work');
+  await assert.rejects(session.setMode('default'), { code: 'CONFIG_NOT_AVAILABLE' });
+  await turn;
+});
+
+test('legacy mode state uses session/set_mode; rejection leaves the confirmed agent', async t => {
+  const session = create(t, 'modes');
+  await session.start('/fixture');
+  await session.setMode('reviewer');
+  assert.equal(session.modeOption().currentValue, 'reviewer');
+  const rejected = create(t, 'modes-reject');
+  await rejected.start('/fixture');
+  await assert.rejects(rejected.setMode('reviewer'), { code: 'CONFIG_REJECTED' });
+  assert.equal(rejected.modeOption().currentValue, 'default');
+  assert.equal(rejected.state, 'ready');
+  const plain = create(t);
+  await plain.start('/fixture');
+  assert.equal(plain.modeOption(), null);
+  await assert.rejects(plain.setMode('reviewer'), { code: 'CONFIG_VALUE_UNKNOWN' });
+});
+
+test('late mode confirmations cannot overwrite newer mode notifications', async t => {
+  const session = create(t, 'modes-stall', { requestMs: 20 });
+  await session.start('/fixture');
+  await assert.rejects(session.setMode('reviewer'), { code: 'CONFIG_TIMEOUT' });
+  session.deliver({ sessionUpdate: 'current_mode_update', currentModeId: 'planner' });
+  await delay(200);
+  assert.equal(session.modeOption().currentValue, 'planner');
+  const late = create(t, 'modes-stall', { requestMs: 20 });
+  await late.start('/fixture');
+  await assert.rejects(late.setMode('reviewer'), { code: 'CONFIG_TIMEOUT' });
+  await delay(200);
+  assert.equal(late.modeOption().currentValue, 'reviewer');
+});
+
+test('loading replays current mode after applying the initial session snapshot', async t => {
+  const session = create(t, 'agents-load');
+  await session.connect();
+  await session.open('/fixture', 'old');
+  assert.equal(session.modeOption().currentValue, 'reviewer');
+  assert.equal(session.modes.currentValue, 'reviewer');
+});
+
+test('native delegation preserves partial tool details, approvals and session isolation', async t => {
+  const session = create(t, 'delegation');
+  const updates = [];
+  session.on('update', update => updates.push(update));
+  await session.start('/fixture');
+  const asked = once(session, 'permission');
+  const turn = session.prompt('Use the reviewer agent');
+  const [card] = await asked;
+  assert.equal(card.params.toolCall.rawInput.agent_name, 'reviewer');
+  assert.equal(card.params._meta.kiro.consent.capability, 'subagent');
+  assert.equal(session.decide(card.id, 'no'), true);
+  await turn;
+  assert.equal(session.state, 'ready');
+  assert.equal(updates.some(update => update.content?.text === 'Unrelated child message'), false);
+  assert.equal(updates.at(-1).status, 'completed');
+});
+
+test('mode advertisements are bounded, deduplicated and require a valid current selection', () => {
+  const options = sanitizeModes({ currentModeId: 'reviewer', availableModes: [
+    { id: 'reviewer', name: 'Reviewer', description: 'Review notes' },
+    { id: 'reviewer', name: 'Duplicate' },
+    { id: 'broken', name: 42 },
+    null,
+    { id: 'planner', name: 'Planner' },
+  ] });
+  assert.deepEqual(options.options.map(option => option.value), ['reviewer', 'planner']);
+  assert.equal(options.options[0].description, 'Review notes');
+  assert.equal(sanitizeModes({ currentModeId: 'missing', availableModes: [{ id: 'reviewer', name: 'Reviewer' }] }), null);
+  assert.equal(sanitizeModes({ currentModeId: 'planner', availableModes: [
+    { id: 'reviewer', name: 'Reviewer' }, { id: 'planner', name: 'Planner' },
+  ] }, { ...LIMITS, configValues: 1 }), null);
 });

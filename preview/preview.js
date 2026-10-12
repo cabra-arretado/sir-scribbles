@@ -18,6 +18,13 @@ class Fixture {
   activePermission() { return this.session.permissions.values().next().value ?? null; }
   setError() { this.error = 'Preview only. No agent executable is launched.'; this.changed(); }
   modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
+  modeOption() { return this.configOptions.find(option => option.category === 'mode') ?? null; }
+  setMode(value) {
+    this.configOptions = this.configOptions.map(option => option.category === 'mode' ? { ...option, currentValue: value } : option);
+    this.changed();
+  }
+  clearComposer() { this.draft = ''; this.selection = null; this.file = null; this.attachments = []; }
+  composeDraft() { return this.draft || this.selection?.text || ''; }
   effortOption() {
     const option = this.configOptions.find(entry => entry.category === 'thought_level');
     return option && option.options.length > 1 ? option : null;
@@ -27,7 +34,8 @@ class Fixture {
   setConfig(model, effort) {
     // Mimic the round trip: the agent replies with the full option list.
     this.configPending = true; this.changed();
-    setTimeout(() => { this.configOptions = models(model, effort); this.configPending = false; this.changed(); }, 400);
+    const mode = this.modeOption()?.currentValue;
+    setTimeout(() => { this.configOptions = models(model, effort, mode); this.configPending = false; this.changed(); }, 400);
   }
   browse() {
     this.state = 'connected'; this.identity = 'Agent · UI fixture'; this.history = { pending: true }; this.changed();
@@ -75,9 +83,11 @@ const PAST = [
 // Effort levels depend on the model; Auto and Haiku only have a default,
 // so the effort picker hides for them.
 const LEVELS = { auto: ['default'], 'claude-sonnet': ['low', 'medium', 'high'], 'claude-opus': ['low', 'medium', 'high', 'xhigh', 'max'], 'claude-haiku': ['default'] };
-const models = (current, effort) => {
+const models = (current, effort, mode = 'vibe') => {
   const levels = LEVELS[current];
-  return [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
+  return [{ id: 'mode', name: 'Agent', category: 'mode', type: 'select', currentValue: mode, options: [
+    { value: 'vibe', name: 'Default' }, { value: 'reviewer', name: 'Reviewer', description: 'Review notes and changes' },
+  ] }, { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: current, options: [
     { value: 'auto', name: 'Auto', description: 'Picks a model for each task' },
     { value: 'claude-sonnet', name: 'Claude Sonnet', group: 'Claude' },
     { value: 'claude-opus', name: 'Claude Opus', group: 'Claude' },
@@ -98,6 +108,7 @@ const ICONS = {
   pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
   terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  'git-fork': '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9M12 15v-3"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
 };
 const setIcon = (node, name) => { node.innerHTML = `<svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] ?? ''}</svg>`; };

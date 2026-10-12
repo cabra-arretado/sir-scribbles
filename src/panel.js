@@ -1,7 +1,7 @@
 import { renderMarkdown, settleStreaming } from './markdown.js';
 import { MASCOT_URL } from './mascot.js';
 import { ICON_URL } from './icon.js';
-import { displayPrompt, toolSubject } from './display.js';
+import { displayPrompt, toolSubject, delegation } from './display.js';
 import { ACCEPT, attachmentKind, checkAttachments, formatBytes, readAttachment } from './attachments.js';
 import { OperationalError } from './limits.js';
 import { describeApproval, describePath } from './approval.js';
@@ -21,10 +21,10 @@ const STATES = {
 // DOM rendering only. Bot Markdown uses a restricted token renderer; note and
 // tool content stays plain text. No raw HTML or automatic resource loading.
 export class ChatPanel {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, approvalDelay = APPROVAL_DELAY_MS }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, runParallel, canRunParallel, approvalDelay = APPROVAL_DELAY_MS }) {
     this.container = container;
     this.model = controller;
-    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon };
+    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, runParallel, canRunParallel };
     this.document = container.ownerDocument;
     this.rows = new Map();
     this.timer = null;
@@ -192,6 +192,8 @@ export class ChatPanel {
       await this.attachContext('attachFile', 'OPEN_NOTE_FIRST');
     }, 'sir-scribbles-attach');
     // Obsidian styles a plain select with its own "dropdown" class.
+    this.agentPicker = this.el('select', 'dropdown sir-scribbles-agent');
+    this.agentPicker.addEventListener('change', () => { void this.model.setMode(this.agentPicker.value); });
     this.modelPicker = this.el('select', 'dropdown sir-scribbles-model');
     this.modelPicker.addEventListener('change', () => { void this.model.setModel(this.modelPicker.value); });
     this.effortPicker = this.el('select', 'dropdown sir-scribbles-model sir-scribbles-effort');
@@ -201,10 +203,13 @@ export class ChatPanel {
     this.setIcon(this.send, 'arrow-up', 'Send');
     this.stop = this.button('', () => this.model.stop(), 'sir-scribbles-send sir-scribbles-stop');
     this.setIcon(this.stop, 'square', 'Stop');
-    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.modelPicker, 'Model'), this.modelPicker,
-      this.labelFor(this.effortPicker, 'Effort'), this.effortPicker, this.force, this.stop, this.send);
+    this.parallel = this.iconButton('git-fork', 'Run draft in a parallel chat', () => { void this.actions.runParallel?.(this.model); }, 'sir-scribbles-parallel');
+    this.configBar = this.el('div', 'sir-scribbles-config-bar');
+    this.configBar.append(this.labelFor(this.agentPicker, 'Agent'), this.agentPicker,
+      this.labelFor(this.modelPicker, 'Model'), this.modelPicker, this.labelFor(this.effortPicker, 'Effort'), this.effortPicker);
+    toolbar.append(this.attachUpload, this.attach, this.attachFile, this.parallel, this.force, this.stop, this.send);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
-    composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
+    composer.append(this.selectionArea, this.attachmentArea, this.composer, this.configBar, toolbar, this.picker);
     footer.append(composer);
     this.container.append(footer);
   }
@@ -336,6 +341,9 @@ export class ChatPanel {
     this.send.hidden = !this.stop.hidden;
     this.modelPicker.disabled = model.state !== 'ready' || model.configPending || model.resetting;
     this.effortPicker.disabled = this.modelPicker.disabled;
+    this.agentPicker.disabled = this.modelPicker.disabled;
+    this.parallel.hidden = !this.actions.runParallel;
+    this.parallel.disabled = !this.actions.getPath().trim() || !this.actions.canRunParallel?.(model);
     this.force.hidden = !model.forceAvailable;
     this.force.disabled = model.resetting;
   }
@@ -360,7 +368,9 @@ export class ChatPanel {
     this.renderAttachments();
     this.renderPermission();
     this.renderPicker(this.modelPicker, this.model.modelOption());
+    this.renderPicker(this.agentPicker, this.model.modeOption?.());
     this.renderPicker(this.effortPicker, this.model.effortOption());
+    this.configBar.hidden = this.agentPicker.hidden && this.modelPicker.hidden && this.effortPicker.hidden;
     this.renderHistory();
   }
 
@@ -489,9 +499,11 @@ export class ChatPanel {
         this.transcript.append(root);
       }
       if (row.summary) {
-        const title = typeof message.data.title === 'string' ? message.data.title : 'Tool';
+        const delegated = delegation(message.data);
+        const title = delegated ? `Subagent${delegated.agent ? `: ${delegated.agent}` : ''}`
+          : typeof message.data.title === 'string' ? message.data.title : 'Tool';
         // A title like "Searching the web for: <query>" already ends with it.
-        const subject = toolSubject(message.data);
+        const subject = delegated ? '' : toolSubject(message.data);
         const shown = subject && !title.endsWith(`: ${subject.replace(/^“|”$/g, '')}`) ? `${title}: ${subject}` : title;
         row.summary.textContent = `${shown} · ${typeof message.data.status === 'string' ? message.data.status : 'pending'}`;
       }
@@ -689,7 +701,7 @@ export class ChatPanel {
     this.permissionArea.hidden = !card;
     if (!card) return;
     const toolCall = card.params.toolCall;
-    const action = describeApproval(toolCall, this.model.cwd);
+    const action = describeApproval(toolCall, this.model.cwd, card.params._meta);
     const identity = this.model.session?.identity;
     const agent = (typeof identity?.title === 'string' && identity.title.trim()) || 'The agent';
 

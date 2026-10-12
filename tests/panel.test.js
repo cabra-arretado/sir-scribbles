@@ -801,3 +801,51 @@ test('areas carry no tooltip; buttons and links keep theirs', t => {
   assert.equal(root.querySelector('.sir-scribbles-agent a').title, 'https://evil.test/');
   assert.equal(root.querySelector('.sir-scribbles-attachment').title, 'a.png · 1 B');
 });
+
+test('agent picker shows only advertised choices and is locked while working or changing config', async t => {
+  const { model, root, panel, dom } = create(t);
+  assert.equal(panel.agentPicker.hidden, true);
+  const chosen = [];
+  model.session = { permissions: new Map(), setMode: async value => { chosen.push(value); } };
+  model.state = 'ready';
+  model.modes = { id: 'mode', name: 'Agent', type: 'select', currentValue: 'default', options: [
+    { value: 'default', name: 'Default' }, { value: 'reviewer', name: '<b>Reviewer</b>', description: 'Review notes' },
+  ] };
+  panel.render();
+  assert.equal(panel.agentPicker.hidden, false);
+  assert.equal(root.querySelector(`label[for="${panel.agentPicker.id}"]`).textContent, 'Agent');
+  assert.equal(panel.agentPicker.querySelector('b'), null);
+  panel.agentPicker.value = 'reviewer';
+  panel.agentPicker.dispatchEvent(new dom.window.Event('change'));
+  await tick();
+  assert.deepEqual(chosen, ['reviewer']);
+  assert.equal(panel.agentPicker.value, 'default', 'only the agent can confirm a change');
+  model.configPending = true;
+  panel.render();
+  assert.equal(panel.agentPicker.disabled, true);
+  model.configPending = false;
+  model.state = 'working';
+  panel.render();
+  assert.equal(panel.agentPicker.disabled, true);
+});
+
+test('native delegation is visible as subagent activity and its approval names the agent and task', t => {
+  const { model, root, panel } = create(t);
+  const toolCall = { toolCallId: 'delegate', title: 'Native tool', kind: 'execute', status: 'in_progress',
+    rawInput: { agent_name: '<b>reviewer</b>', prompt: 'Review <img src="https://never.test"> notes' },
+    _meta: { kiro: { toolId: 'invoke_sub_agent' } } };
+  model.update({ sessionUpdate: 'tool_call', ...toolCall });
+  model.update({ sessionUpdate: 'tool_call_update', toolCallId: 'delegate', status: 'completed' });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'other', title: 'subagent tool title', status: 'pending' });
+  const card = { id: 9, params: { toolCall, _meta: { kiro: { toolId: 'invoke_sub_agent', consent: { capability: 'subagent', resource: '<b>reviewer</b>' } } } },
+    options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Deny', kind: 'reject_once' }] };
+  model.session = { permissions: new Map([[9, card]]) };
+  model.state = 'waiting-for-approval';
+  panel.render();
+  assert.deepEqual([...panel.transcript.querySelectorAll('summary')].map(node => node.textContent),
+    ['Subagent: <b>reviewer</b> · completed', 'subagent tool title · pending']);
+  assert.equal(root.querySelector('.sir-scribbles-permission-area h3').textContent, 'Delegate to a subagent');
+  assert.ok(panel.permissionArea.textContent.includes('Review <img src="https://never.test"> notes'));
+  assert.equal(panel.permissionArea.querySelectorAll('b, img, script').length, 0);
+  assert.equal(model.session.permissions.size, 1);
+});

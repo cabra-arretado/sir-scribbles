@@ -21,3 +21,13 @@ export function toolSubject(data) {
   const query = found('query');
   return query ? `“${query}”` : found('url');
 }
+
+// Stable Kiro identity/consent metadata is display-only. A title containing
+// "subagent" is not evidence that an arbitrary tool is native delegation.
+export function delegation(call, meta = call?._meta) {
+  const kiro = meta?.kiro;
+  if (kiro?.toolId !== 'invoke_sub_agent' && kiro?.consent?.capability !== 'subagent') return null;
+  const input = call?.rawInput;
+  const text = value => typeof value === 'string' ? value.trim() : '';
+  return { agent: text(kiro?.consent?.resource) || text(input?.agent_name), task: text(input?.prompt) || text(input?.task) };
+}

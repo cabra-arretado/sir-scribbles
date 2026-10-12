@@ -121,6 +121,36 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
    stops every owned process group. A tab whose cleanup is uncertain stays open
    with **Force stop agent** until recovery succeeds.
 
+### Agents and parallel tasks
+
+After starting a chat, the **Agent** picker shows the profiles or modes Kiro
+advertises for that session, including available custom agents. Change it
+between turns; the picker follows Kiro's confirmed selection. Agent, model and
+effort choices remain independent for each tab. Profile creation and editing
+stay in Kiro's CLI or configuration files.
+
+To delegate inside your conversation, ask Kiro directly, for example:
+“Use the reviewer agent to review this note.” Kiro controls its native subagents
+and applies the profile's available/trusted-agent settings. Reported delegation
+appears as subagent tool activity, with its reported status and details. A
+delegation approval names the target and previews the task when Kiro supplies
+them. V3 does not expose a complete subagent roster or independent termination
+API; the sidebar displays the activity Kiro reports in the parent chat.
+
+To run an independent task while another is working, write it in the composer
+and click the fork button, **Run draft in a parallel chat**. This moves the
+draft and explicit attachments into a new tab and starts it on the selected
+agent with Kiro's default model. It receives no conversation history from the
+original chat. If startup or agent selection fails, the draft stays in the new
+tab for review. Edits made during startup are kept and require another Send.
+Each parallel chat has its own ACP session, process, approvals, Stop and cleanup,
+and counts toward the five-tab limit. Its result stays in its own tab.
+
+The adapter prefers advertised mode configuration options, with standard
+`session/set_mode` as a fallback. It does not invoke legacy private spawn/list/
+terminate methods. See the official [Kiro ACP migration guide](https://kiro.dev/docs/cli/v3/acp-migration/)
+and [subagent documentation](https://kiro.dev/docs/chat/subagents/).
+
 On a normal Obsidian quit, the plugin registers an awaited cleanup task: it ends
 ACP, sends SIGTERM to its owned process group, and escalates to SIGKILL after two
 seconds if needed. Each conversation is discarded from the sidebar; reopening

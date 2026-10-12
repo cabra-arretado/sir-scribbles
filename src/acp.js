@@ -44,6 +44,19 @@ export function sanitizeConfigOptions(input, limits = LIMITS) {
   return options;
 }
 
+// Older ACP servers expose modes separately from configuration options.
+export function sanitizeModes(input, limits = LIMITS) {
+  if (!isRecord(input) || !Array.isArray(input.availableModes)) return null;
+  const options = [];
+  for (const mode of input.availableModes.slice(0, limits.configValues)) {
+    if (!isRecord(mode) || options.some(option => option.value === mode.id)) continue;
+    const option = configValue({ ...mode, value: mode.id });
+    if (option) options.push(option);
+  }
+  if (!options.some(option => option.value === input.currentModeId)) return null;
+  return { id: 'mode', name: 'Agent', type: 'select', category: 'mode', currentValue: input.currentModeId, options };
+}
+
 // Allocate one bounded buffer, not an unbounded string or chunk list.
 // Scan byte boundaries before parsing and reject malformed UTF-8.
 export class FrameReader {
@@ -105,6 +118,9 @@ export class AcpSession extends EventEmitter {
     this.sessionId = null;
     this.cwd = null;
     this.configOptions = [];
+    this.modes = null;
+    this.modeSeq = 0;
+    this.modeStamp = 0;
     // Ordering for option lists: each change request and each agent update
     // takes the next number; configStamp is the number behind the shown list.
     this.configSeq = 0;
@@ -201,7 +217,10 @@ export class AcpSession extends EventEmitter {
       }
       if (frame.method === 'session/update') {
         if (!isRecord(frame.params) || !isRecord(frame.params.update)) throw new OperationalError('INVALID_UPDATE');
-        if (this.state === 'starting' && this.sessionId === null) this.startupUpdates.push(frame.params);
+        if (this.state === 'starting' && (this.sessionId === null ||
+            (frame.params.sessionId === this.sessionId && ['current_mode_update', 'config_option_update'].includes(frame.params.update.sessionUpdate)))) {
+          this.startupUpdates.push(frame.params);
+        }
         else if (frame.params.sessionId === this.sessionId) this.deliver(frame.params.update);
       }
       return;
@@ -229,6 +248,10 @@ export class AcpSession extends EventEmitter {
       this.setConfigOptions(update.configOptions);
       return;
     }
+    if (update.sessionUpdate === 'current_mode_update') {
+      this.setCurrentMode(update.currentModeId);
+      return;
+    }
     this.rememberToolCall(update);
     this.emit('update', update);
   }
@@ -237,6 +260,24 @@ export class AcpSession extends EventEmitter {
     this.configOptions = sanitizeConfigOptions(input, this.limits);
     this.configStamp = stamp;
     this.emit('config-options', this.configOptions);
+  }
+
+  modeOption() {
+    return this.configOptions.find(option => option.category === 'mode' || option.id === 'mode') ?? this.modes;
+  }
+
+  setCurrentMode(value, stamp = ++this.modeSeq) {
+    if (!label(value)) return;
+    // Keep both representations current, but prefer config options for changes.
+    const option = this.configOptions.find(entry => entry.category === 'mode' || entry.id === 'mode');
+    if (option?.options.some(entry => entry.value === value)) {
+      this.setConfigOptions(this.configOptions.map(entry => entry === option ? { ...entry, currentValue: value } : entry));
+    }
+    if (this.modes?.options.some(entry => entry.value === value)) {
+      this.modes = { ...this.modes, currentValue: value };
+      this.modeStamp = stamp;
+      this.emit('modes', this.modes);
+    }
   }
 
   rememberToolCall(update) {
@@ -367,6 +408,8 @@ export class AcpSession extends EventEmitter {
     this.setState('starting');
     this.startupTimer = setTimeout(() => this.fail('STARTUP_TIMEOUT'), sessionId ? this.limits.loadMs : this.limits.startupMs);
     try {
+      const configStamp = this.configStamp;
+      const modeStamp = this.modeStamp;
       let session;
       if (sessionId) {
         // Known up front, so replayed updates are delivered as they arrive.
@@ -381,7 +424,11 @@ export class AcpSession extends EventEmitter {
       }
       if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
       this.sessionId = sessionId ?? session.sessionId;
-      this.configOptions = sanitizeConfigOptions(session.configOptions, this.limits);
+      if (this.configStamp === configStamp) this.setConfigOptions(session.configOptions);
+      if (this.modeStamp === modeStamp) {
+        this.modes = sanitizeModes(session.modes, this.limits);
+        this.emit('modes', this.modes);
+      }
       const startupUpdates = this.startupUpdates;
       this.startupUpdates = [];
       for (const params of startupUpdates) {
@@ -390,7 +437,7 @@ export class AcpSession extends EventEmitter {
       clearTimeout(this.startupTimer);
       this.startupTimer = null;
       this.setState('ready');
-      return { identity: this.identity, capabilities: this.capabilities, configOptions: this.configOptions };
+      return { identity: this.identity, capabilities: this.capabilities, configOptions: this.configOptions, modes: this.modes };
     } catch (error) {
       this.fail(error.code || 'START_FAILED');
       if (this.cleanup) await this.cleanup;
@@ -460,8 +507,29 @@ export class AcpSession extends EventEmitter {
     }
     if (this.transportClosed) throw new OperationalError('TRANSPORT_CLOSED');
     if (!isRecord(result) || !Array.isArray(result.configOptions)) throw new OperationalError('CONFIG_REJECTED');
-    this.setConfigOptions(result.configOptions, seq);
+    if (seq > this.configStamp) this.setConfigOptions(result.configOptions, seq);
     return this.configOptions;
+  }
+
+  async setMode(value) {
+    if (this.state !== 'ready') throw new OperationalError('CONFIG_NOT_AVAILABLE');
+    const option = this.modeOption();
+    if (!option?.options.some(entry => entry.value === value)) throw new OperationalError('CONFIG_VALUE_UNKNOWN');
+    if (this.configOptions.includes(option)) return this.setConfigOption(option.id, value);
+    const seq = ++this.modeSeq;
+    const confirmed = result => {
+      if (!this.transportClosed && seq > this.modeStamp && isRecord(result)) this.setCurrentMode(value, seq);
+    };
+    let result;
+    try {
+      result = await this.request('session/set_mode', { sessionId: this.sessionId, modeId: value }, { timeoutMs: this.limits.requestMs, late: confirmed });
+    } catch (error) {
+      if (this.transportClosed) throw error;
+      throw new OperationalError(error.code === 'REQUEST_TIMEOUT' ? 'CONFIG_TIMEOUT' : 'CONFIG_REJECTED');
+    }
+    if (!isRecord(result)) throw new OperationalError('CONFIG_REJECTED');
+    confirmed(result);
+    return this.modes;
   }
 
   stop() {

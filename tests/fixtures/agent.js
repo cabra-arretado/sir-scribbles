@@ -26,6 +26,12 @@ const models = current => [
     { group: 'claude', name: 'Claude', options: [{ value: 'sonnet', name: 'Sonnet' }, { value: 'opus', name: 'Opus' }] },
   ] },
 ];
+const agentModes = current => ({ currentModeId: current, availableModes: [
+  { id: 'default', name: 'Default' }, { id: 'reviewer', name: 'Reviewer', description: 'Review changes' }, { id: 'planner', name: 'Planner' },
+] });
+const agentOptions = current => [{ id: 'agent-choice', category: 'mode', name: 'Agent', type: 'select', currentValue: current,
+  options: agentModes(current).availableModes.map(({ id, ...mode }) => ({ ...mode, value: id })) }, ...models('auto').filter(option => option.id !== 'mode')];
+let currentAgent = 'default';
 let promptId;
 let pendingChoice = false;
 let stalled = 0;
@@ -42,10 +48,15 @@ input.on('line', line => {
     if (mode === 'invalid-json') { process.stdout.write('{bad}\n'); return; }
     reply(frame.id, {
       protocolVersion: mode === 'wrong-version' ? 2 : 1,
-      agentCapabilities: mode.startsWith('history') ? { loadSession: true, sessionCapabilities: { list: {} } } : mode === 'images' ? { promptCapabilities: { image: true } } : {},
+      agentCapabilities: mode.startsWith('history') || mode === 'agents-load' ? { loadSession: true, sessionCapabilities: { list: {} } } : mode === 'images' ? { promptCapabilities: { image: true } } : {},
       agentInfo: { name: 'fixture', version: 'test' },
     });
   } else if (frame.method === 'session/new') {
+    if (mode.startsWith('agents') || mode.startsWith('modes')) {
+      reply(frame.id, { sessionId: 'fixture-session', modes: agentModes(currentAgent),
+        ...(mode.startsWith('agents') ? { configOptions: agentOptions(currentAgent) } : {}) });
+      return;
+    }
     reply(frame.id, mode.startsWith('config') ? { sessionId: 'fixture-session', configOptions: models('auto') } : { sessionId: 'fixture-session' });
     if (grandchild) update({ sessionUpdate: 'fixture-child', pid: grandchild.pid });
   } else if (frame.method === 'session/list') {
@@ -61,6 +72,11 @@ input.on('line', line => {
     else reply(frame.id, { sessions: [{ sessionId: 'recent', cwd, title: 'Recent chat', updatedAt: '2026-02-01T10:00:00Z' }, { sessionId: 'untitled', cwd }] });
   } else if (frame.method === 'session/load') {
     const { sessionId } = frame.params;
+    if (mode === 'agents-load') {
+      update({ sessionUpdate: 'current_mode_update', currentModeId: 'reviewer' }, sessionId);
+      reply(frame.id, { modes: agentModes('default'), configOptions: agentOptions('default') });
+      return;
+    }
     if (sessionId === 'missing') { output({ id: frame.id, error: { code: -32002, message: 'private detail' } }); return; }
     update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'Earlier ' } }, sessionId);
     update({ sessionUpdate: 'user_message_chunk', messageId: 'u1', content: { type: 'text', text: 'question' } }, sessionId);
@@ -70,12 +86,27 @@ input.on('line', line => {
     update({ sessionUpdate: 'session_info_update', title: 'Renamed by agent' }, sessionId);
     reply(frame.id, { configOptions: models('opus') });
   } else if (frame.method === 'session/set_config_option') {
+    if (mode.startsWith('agents') && frame.params.configId === 'agent-choice') {
+      if (mode === 'agents-reject') output({ id: frame.id, error: { code: -32602, message: 'private detail' } });
+      else {
+        currentAgent = frame.params.value;
+        update({ sessionUpdate: 'config_option_update', configOptions: agentOptions(currentAgent) }, frame.params.sessionId);
+        reply(frame.id, { configOptions: agentOptions(currentAgent) });
+      }
+      return;
+    }
     if (mode === 'config-reject') output({ id: frame.id, error: { code: -32602, message: 'private detail' } });
     else if (mode === 'config-stall') setTimeout(() => reply(frame.id, { configOptions: models(frame.params.value) }), 150);
     // Two stalled changes whose replies arrive newest first.
     else if (mode === 'config-stall-reverse') setTimeout(() => reply(frame.id, { configOptions: models(frame.params.value) }), stalled++ ? 120 : 250);
     else if (mode === 'config-stall-first' && !stalled) { stalled = 1; setTimeout(() => reply(frame.id, { configOptions: models(frame.params.value) }), 150); }
     else reply(frame.id, { configOptions: models(frame.params.value) });
+  } else if (frame.method === 'session/set_mode') {
+    if (mode === 'modes-reject') { output({ id: frame.id, error: { code: -32602, message: 'private detail' } }); return; }
+    currentAgent = frame.params.modeId;
+    if (mode === 'modes-stall') { setTimeout(() => reply(frame.id, {}), 150); return; }
+    update({ sessionUpdate: 'current_mode_update', currentModeId: currentAgent }, frame.params.sessionId);
+    reply(frame.id, {});
   } else if (frame.method === 'session/prompt') {
     if (mode === 'history') {
       update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'continued' } }, frame.params.sessionId);
@@ -84,6 +115,18 @@ input.on('line', line => {
     }
     if (mode === 'config') update({ sessionUpdate: 'config_option_update', configOptions: models('opus') });
     promptId = frame.id;
+    if (mode === 'delegation') {
+      pendingChoice = true;
+      update({ sessionUpdate: 'tool_call', toolCallId: 'tool-100', title: 'Invoke agent', status: 'pending',
+        _meta: { kiro: { toolId: 'invoke_sub_agent' } }, rawInput: { agent_name: 'reviewer', prompt: 'Review notes' } });
+      output({ id: 100, method: 'session/request_permission', params: {
+        sessionId: frame.params.sessionId, toolCall: { toolCallId: 'tool-100', status: 'pending' },
+        options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Deny', kind: 'reject_once' }],
+        _meta: { kiro: { toolId: 'invoke_sub_agent', consent: { capability: 'subagent', resource: 'reviewer', workspaceRoot: '/fixture' } } },
+      } });
+      update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Unrelated child message' } }, 'unowned-child');
+      return;
+    }
     if (mode === 'transport-loss') { process.stdout.end(); return; }
     if (mode === 'permission' || mode === 'duplicate' || mode === 'queue' || mode === 'queue-overflow') {
       pendingChoice = true;
@@ -93,7 +136,7 @@ input.on('line', line => {
       if (mode === 'queue-overflow') for (let id = 101; id <= 116; id++) permission(id);
       return;
     }
-    if (mode === 'hang' || mode === 'cancel-hang') {
+    if (mode === 'hang' || mode === 'cancel-hang' || mode === 'agents-hang') {
       update({ sessionUpdate: 'session_info_update', _meta: { kiro: { kind: 'turn_end' } } });
       return;
     }

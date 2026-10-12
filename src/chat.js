@@ -36,6 +36,8 @@ export const ERROR_TEXT = {
   HISTORY_NOT_SUPPORTED: 'This agent cannot list past chats. Start a new chat instead.',
   HISTORY_UNAVAILABLE: 'The agent could not list past chats. Try again, or start a new chat.',
   LOAD_NOT_SUPPORTED: 'This agent cannot reopen past chats. Start a new chat instead.',
+  CHAT_LIMIT: `Up to ${LIMITS.chats} chats can run at once. Close one before starting another task.`,
+  PARALLEL_MODE_UNAVAILABLE: 'The new chat did not confirm the selected agent. Choose an agent here and send the draft when ready.',
 };
 // One line, short enough for a tab.
 const titleOf = text => {
@@ -67,6 +69,7 @@ export class ChatController extends EventEmitter {
     this.composerEpoch = 0;
     this.identity = '';
     this.configOptions = [];
+    this.modes = null;
     this.configPending = false;
     this.error = '';
     this.cleanup = '';
@@ -125,8 +128,10 @@ export class ChatController extends EventEmitter {
   // Unknown until the agent has started and said so.
   supportsImages() { return this.session?.capabilities ? Boolean(this.session.canPromptImages?.()) : null; }
   hasDraft() { return Boolean(this.draft.trim() || this.selection || this.file || this.attachments.length); }
+  composeDraft() { return composePrompt(this.draft, this.selection, this.file, undefined, this.attachments); }
   // The session's model choice, if the agent offers one as a config option.
   modelOption() { return this.configOptions.find(option => option.category === 'model') ?? null; }
+  modeOption() { return this.configOptions.find(option => option.category === 'mode' || option.id === 'mode') ?? this.modes; }
   // The reasoning effort for the current model. Kiro names it effortLevel;
   // a single value is only the model's default, so there is nothing to choose.
   effortOption() {
@@ -159,6 +164,7 @@ export class ChatController extends EventEmitter {
       session.on('config-options', options => {
         if (live()) { this.configOptions = options; this.changed(); }
       });
+      session.on('modes', modes => { if (live()) { this.modes = modes; this.changed(); } });
       for (const event of ['permission', 'permission-settled', 'permissions-cancelled']) {
         session.on(event, () => { if (live()) this.changed(); });
       }
@@ -264,7 +270,7 @@ export class ChatController extends EventEmitter {
     this.changed();
     try {
       const opened = await session.open(this.cwd, sessionId);
-      if (live()) { this.history = null; this.configOptions = opened.configOptions ?? []; }
+      if (live()) { this.history = null; this.configOptions = opened.configOptions ?? []; this.modes = opened.modes ?? null; }
     } catch (error) {
       // A refusal before any request leaves the agent connected: keep the
       // picker and its new-chat fallback. Anything else ended the agent.
@@ -335,7 +341,7 @@ export class ChatController extends EventEmitter {
     if (this.resetting || this.disposed || this.configPending || this.reading || this.history?.pending || !['not-started', 'connected', 'ready'].includes(this.state)) return;
     if (this.state === 'not-started' && !executable) return;
     let prompt;
-    try { prompt = composePrompt(this.draft, this.selection, this.file, undefined, this.attachments); }
+    try { prompt = this.composeDraft(); }
     catch (error) { this.setError(error.code); return; }
     const originalDraft = this.draft;
     const originalSelection = this.selection;
@@ -390,7 +396,8 @@ export class ChatController extends EventEmitter {
 
   setModel(value) { return this.setConfig(this.modelOption(), value); }
   setEffort(value) { return this.setConfig(this.effortOption(), value); }
-  async setConfig(option, value) {
+  setMode(value) { return this.setConfig(this.modeOption(), value, true); }
+  async setConfig(option, value, mode = false) {
     if (!option || this.state !== 'ready' || this.configPending || this.resetting || this.disposed) return;
     if (value === option.currentValue) return;
     const session = this.session;
@@ -398,7 +405,10 @@ export class ChatController extends EventEmitter {
     this.configPending = true;
     this.error = '';
     this.changed();
-    try { await session.setConfigOption(option.id, value); }
+    try {
+      if (mode) await session.setMode(value);
+      else await session.setConfigOption(option.id, value);
+    }
     catch (error) {
       // Transport failures already reported their own error.
       if (generation === this.generation && !this.disposed && !session.transportClosed) this.setError(error.code);
@@ -461,6 +471,7 @@ export class ChatController extends EventEmitter {
     if (!keepComposer) this.clearComposer();
     this.identity = '';
     this.configOptions = [];
+    this.modes = null;
     this.configPending = false;
     this.error = '';
     this.cleanup = '';
