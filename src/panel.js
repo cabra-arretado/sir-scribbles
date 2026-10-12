@@ -192,7 +192,7 @@ export class ChatPanel {
       await this.attachContext('attachFile', 'OPEN_NOTE_FIRST');
     }, 'sir-scribbles-attach');
     // Obsidian styles a plain select with its own "dropdown" class.
-    this.agentPicker = this.el('select', 'dropdown sir-scribbles-agent');
+    this.agentPicker = this.el('select', 'dropdown sir-scribbles-agent-picker');
     this.agentPicker.addEventListener('change', () => { void this.model.setMode(this.agentPicker.value); });
     this.modelPicker = this.el('select', 'dropdown sir-scribbles-model');
     this.modelPicker.addEventListener('change', () => { void this.model.setModel(this.modelPicker.value); });
