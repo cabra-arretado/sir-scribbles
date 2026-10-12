@@ -7,13 +7,13 @@ import { JSDOM } from 'jsdom';
 const require = createRequire(import.meta.url);
 const compiled = await build({ entryPoints: ['src/main.js'], bundle: true, format: 'cjs', platform: 'node', external: ['obsidian'], write: false });
 
-function create(t) {
+function create(t, preferences = {}) {
   const dom = new JSDOM('<body></body>');
   const leaves = [];
   const events = new Map();
   const writes = [];
   let launches = 0;
-  const stored = new Map([['sir-scribbles:executable:/other-vault', '/fixture/other']]);
+  const stored = new Map([['sir-scribbles:executable:/other-vault', '/fixture/other'], ...Object.entries(preferences)]);
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
     getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value),
@@ -30,6 +30,7 @@ function create(t) {
     addRibbonIcon(icon, title, fn) { this.ribbon = fn; }
     addCommand(command) { this.command = command; }
     addSettingTab() {}
+    addStatusBarItem() { const item = dom.window.document.createElement('div'); item.className = 'status-bar-item'; dom.window.document.body.append(item); return item; }
     registerEvent() {}
   }
   class ItemView { constructor(leaf) { this.leaf = leaf; this.app = leaf.app; this.contentEl = dom.window.document.createElement('div'); } register() {} registerEvent() {} }
@@ -49,6 +50,7 @@ function create(t) {
   };
   new Function('require', 'module', 'exports', compiled.outputFiles[0].text)(customRequire, module, module.exports);
   const app = { vault: { adapter: new FileSystemAdapter() }, workspace: {
+    containerEl: dom.window.document.body,
     on: (name, fn) => events.set(name, fn),
     getActiveViewOfType: () => null,
     getLeavesOfType: type => leaves.filter(leaf => leaf.view?.getViewType?.() === type),
@@ -59,7 +61,7 @@ function create(t) {
   const leaf = { app, detached: false, detach() { this.detached = true; }, async setViewState() { this.view = plugin.factory(this); await this.view.onOpen(); } };
   leaves.push(leaf);
   t.after(async () => { await plugin.tabs?.dispose(); dom.window.close(); });
-  return { plugin, app, leaf, leaves, events, writes, stored, launches: () => launches };
+  return { plugin, app, leaf, leaves, events, writes, stored, document: dom.window.document, launches: () => launches };
 }
 
 test('Obsidian plugin enablement and restored sidebar never launch a CLI or persist content', async t => {
@@ -150,4 +152,92 @@ test('normal quit registers an awaited cleanup task shared with unload', async t
   await task;
   assert.equal(settled, true);
   plugin.tabs = null;
+});
+
+const FLOATING = { 'sir-scribbles:floating:/fixture-vault': JSON.stringify({ enabled: true, opacity: 70 }) };
+
+test('floating chat is off by default and its preference is per device and vault', async t => {
+  const { plugin, document, stored } = create(t, { 'sir-scribbles:floating:/other-vault': JSON.stringify({ enabled: true }) });
+  await plugin.onload();
+  assert.equal(plugin.floating.enabled, false);
+  assert.equal(document.querySelector('.sir-scribbles-floating-launcher'), null);
+  await plugin.setFloating({ enabled: true, opacity: 5 });
+  assert.equal(plugin.floating.enabled, true);
+  assert.deepEqual(JSON.parse(stored.get('sir-scribbles:floating:/fixture-vault')), { enabled: true, opacity: 40 });
+});
+
+test('floating chat shows the same chats without the sidebar and keeps them while hidden', async t => {
+  const { plugin, document, launches, writes } = create(t, FLOATING);
+  await plugin.onload();
+  const launcher = document.querySelector('.sir-scribbles-floating-launcher');
+  assert.equal(launcher.parentElement.className, 'status-bar-item', 'the launcher lives in the status bar');
+  assert.equal(plugin.tabs, null, 'enabling creates no chat until the window opens');
+  await plugin.floating.show();
+  const tabs = plugin.tabs;
+  assert.equal(plugin.surface.container, plugin.floating.body);
+  assert.ok(plugin.floating.body.querySelector('.sir-scribbles-tabs'));
+  tabs.active.setDraft('Keep me');
+  await plugin.floating.hide();
+  assert.equal(plugin.tabs, tabs);
+  assert.equal(tabs.disposed, false);
+  assert.equal(plugin.surface, null);
+  await plugin.floating.show();
+  assert.equal(plugin.tabs.active.draft, 'Keep me');
+  assert.equal(launches(), 0);
+  assert.deepEqual(writes, []);
+});
+
+test('the sidebar and floating window take turns showing the chats', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  const tabs = plugin.tabs;
+  assert.equal(plugin.surface.container, leaf.view.contentEl);
+  await plugin.floating.show();
+  assert.equal(plugin.surface.container, plugin.floating.body);
+  assert.equal(leaf.view.panel, null);
+  const show = leaf.view.contentEl.querySelector('.sir-scribbles-elsewhere button');
+  assert.equal(show.textContent, 'Show chats here');
+  show.click();
+  await Promise.resolve();
+  assert.equal(plugin.floating.open, false);
+  assert.equal(plugin.surface.container, leaf.view.contentEl);
+  assert.equal(leaf.view.panel, plugin.surface.panel);
+  assert.equal(plugin.tabs, tabs);
+});
+
+test('closing the sidebar keeps chats for the floating window; turning floating off then ends them', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  const tabs = plugin.tabs;
+  await leaf.view.onClose();
+  assert.equal(plugin.tabs, tabs);
+  assert.equal(tabs.disposed, false);
+  await plugin.setFloating({ enabled: false });
+  assert.equal(plugin.floating.enabled, false);
+  assert.equal(tabs.disposed, true);
+  assert.equal(plugin.tabs, null);
+});
+
+test('turning floating off while the sidebar is open moves the chats back to it', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  const tabs = plugin.tabs;
+  await plugin.floating.show();
+  await plugin.setFloating({ enabled: false });
+  assert.equal(plugin.surface.container, leaf.view.contentEl);
+  assert.equal(plugin.tabs, tabs);
+  assert.equal(tabs.disposed, false);
+});
+
+test('unloading removes the floating chat and ends its chats', async t => {
+  const { plugin, document } = create(t, FLOATING);
+  await plugin.onload();
+  await plugin.floating.show();
+  const tabs = plugin.tabs;
+  await plugin.shutdown();
+  assert.equal(document.querySelector('.sir-scribbles-floating, .sir-scribbles-floating-launcher, .status-bar-item'), null);
+  assert.equal(tabs.disposed, true);
 });

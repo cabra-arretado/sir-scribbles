@@ -121,6 +121,24 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
    stops every owned process group. A tab whose cleanup is uncertain stays open
    with **Force stop agent** until recovery succeeds.
 
+### Floating chat
+
+Turn on **Settings → Sir Scribbles → Floating chat** to chat without opening the
+sidebar. A chat icon appears in the status bar; click it, or run **Sir Scribbles:
+Show or hide floating chat**, to open a window over your notes. The window is
+translucent while you are not using it and fully opaque on hover or while you
+type; **Floating chat opacity** sets how translucent it is (40–100%, default 85%).
+Both settings are stored on this device, like the executable path.
+
+The sidebar and the floating window show the same chats, one place at a time:
+opening the window moves your chats, drafts and attachments into it, and the
+sidebar offers **Show chats here** to move them back. The window's sidebar
+button does the same. Hiding the window (its **−** button, the status bar icon
+or Escape) keeps every chat running; the icon shows a dot while a chat is
+working, yellow when one is waiting for your approval. With floating chat on,
+closing the sidebar keeps chats running for the window. Turning floating chat
+off while the sidebar is closed ends them, like closing the sidebar.
+
 On a normal Obsidian quit, the plugin registers an awaited cleanup task: it ends
 ACP, sends SIGTERM to its owned process group, and escalates to SIGKILL after two
 seconds if needed. Each conversation is discarded from the sidebar; reopening

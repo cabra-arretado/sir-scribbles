@@ -1,4 +1,5 @@
 import { ChatTabs, TabbedPanel } from '../src/tabs.js';
+import { FloatingChat } from '../src/floating.js';
 
 // Development-only UI fixtures. Not bundled into the Obsidian plugin.
 class Fixture {
@@ -95,6 +96,9 @@ const ICONS = {
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  minus: '<path d="M5 12h14"/>',
+  'panel-right': '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+  'messages-square': '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
   pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
   terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -108,13 +112,24 @@ tabs.add();
 let model = tabs.active;
 tabs.on('change', () => { model = tabs.active; });
 const selection = { path: 'Projects/Launch notes.md', from: 7, to: 7, text: 'Give the user a clear starting point, let them choose the context, and keep every action visible.' };
-const panel = new TabbedPanel(document.getElementById('panel'), tabs, {
+const actions = {
   setIcon,
   getPath: () => '/Users/you/.local/bin/agent', savePath: async () => {}, attachSelection: () => selection,
   attachFile: () => ({ kind: 'file', path: selection.path }),
   openNote: target => { model.error = `Preview note link: ${typeof target === 'string' ? target : target.path}. No vault is open in this fixture.`; model.changed(); },
   confirmClose: async () => window.confirm('Close this preview chat?'), copyText: text => navigator.clipboard.writeText(text),
+};
+// Like the plugin: one set of chats, shown in the sidebar or the floating window.
+const sidebar = document.getElementById('panel');
+let panel = new TabbedPanel(sidebar, tabs, actions);
+const floating = new FloatingChat(document, {
+  setIcon,
+  onShow: body => { panel.dispose(); sidebar.textContent = 'Chats are open in the floating window.'; panel = new TabbedPanel(body, tabs, actions); },
+  onHide: () => { panel.dispose(); panel = new TabbedPanel(sidebar, tabs, actions); },
+  onSidebar: () => floating.hide({ focus: false }),
 });
+floating.enable();
+tabs.on('change', () => floating.setActivity(tabs.chats.map(chat => chat.state)));
 document.getElementById('initial').onclick = () => model.newChat();
 document.getElementById('conversation').onclick = () => {
   model.newChat(); model.start();
