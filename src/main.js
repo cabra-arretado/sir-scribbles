@@ -72,6 +72,9 @@ class ScribblesView extends ItemView {
   getViewType() { return VIEW_TYPE; }
   getDisplayText() { return 'Sir Scribbles'; }
   getIcon() { return 'messages-square'; }
+  // Obsidian reports a leaf becoming visible or changing size here; a prompt
+  // could not be measured while the leaf was hidden.
+  onResize() { this.panel?.refit(); }
   async onOpen() {
     if (this.plugin.activeView && this.plugin.activeView !== this) {
       this.leaf.detach(); // Restored duplicate layouts focus one owner; never launch a second process.
@@ -173,23 +176,27 @@ class ScribblesSettings extends PluginSettingTab {
     new Setting(custom).setName('Custom font')
       .setDesc('The name of a font installed on this device, such as Inter or Fira Code. Separate fallbacks with commas.')
       .addText(text => {
-        // A name being composed with an input method is not a name yet.
-        let composing = false;
-        text.inputEl.addEventListener('compositionstart', () => { composing = true; });
-        text.inputEl.addEventListener('compositionend', () => { composing = false; });
-        text.setPlaceholder('Inter').setValue(appearance.customFont).onChange(value => {
-          // A tab left open across an unload or reload must not write over the new plugin.
-          if (this.plugin.unloaded || composing) return;
+        const input = text.inputEl;
+        const schedule = value => {
           this.flushFont(false);
           const apply = () => { this.pendingFont = null; this.plugin.setAppearance({ customFont: value }); };
           this.pendingFont = { apply, timer: setTimeout(apply, CUSTOM_FONT_DELAY_MS) };
-        });
-        // Leaving the field applies the name and shows it as it was saved.
+        };
+        // A name being composed with an input method is not a name yet.
+        // Chromium sends the committing input before compositionend, so the
+        // end of a composition schedules the field's value itself.
+        let composing = false;
+        input.addEventListener('compositionstart', () => { composing = true; this.flushFont(false); });
+        input.addEventListener('compositionend', () => { composing = false; schedule(input.value); });
+        text.setPlaceholder('Inter').setValue(appearance.customFont).onChange(value => { if (!composing) schedule(value); });
+        // Leaving the field applies what it holds and shows it as saved.
         // Never while typing: tidying would eat a space before the next word.
-        text.inputEl.addEventListener('blur', () => {
+        input.addEventListener('blur', () => {
           // Switching to another app blurs the field but keeps it focused here: not leaving it.
-          if (this.plugin.unloaded || text.inputEl.ownerDocument.activeElement === text.inputEl) return;
-          this.flushFont();
+          if (this.plugin.unloaded || input.ownerDocument.activeElement === input) return;
+          this.flushFont(false);
+          composing = false;
+          this.plugin.setAppearance({ customFont: input.value });
           text.setValue(this.plugin.appearance.customFont);
         });
       });
@@ -237,7 +244,7 @@ export default class SirScribblesPlugin extends Plugin {
       onShow: body => this.showFloating(body),
       onHide: () => this.hideFloating(),
       onSidebar: async () => { await this.floating.hide({ focus: false }); await this.openChat(); },
-      onResize: size => { void this.setFloating({ size }); },
+      onResize: size => { void this.setFloating({ size }); this.surface?.panel.refit(); },
       // The status bar is always visible and never covers a note or the sidebar.
       launcherHost: () => this.addStatusBarItem(),
     });
@@ -272,6 +279,8 @@ export default class SirScribblesPlugin extends Plugin {
     this.surface?.panel.renderAll();
   }
   setAppearance(changes) {
+    // A settings tab left open across an unload or reload must not write over the new plugin.
+    if (this.unloaded) return;
     this.appearance = normalizeAppearance({ ...this.appearance, ...changes });
     writePreferences(this.app, 'appearance', this.appearance);
     applyAppearance(this.surface?.container, this.appearance);
@@ -422,10 +431,10 @@ export default class SirScribblesPlugin extends Plugin {
     if (leaf) { await leaf.setViewState({ type: VIEW_TYPE, active: true }); await this.app.workspace.revealLeaf(leaf); }
   }
   async shutdown() {
-    this.unloaded = true;
     // A custom font waiting for a pause is saved now, never by a timer that
     // outlives this plugin and overwrites a reloaded one.
-    this.settingsTab?.flushFont();
+    if (!this.unloaded) this.settingsTab?.flushFont();
+    this.unloaded = true;
     this.unmount();
     this.lastEditor = null;
     // One shared shutdown: agent cleanup starts at once, and the floating

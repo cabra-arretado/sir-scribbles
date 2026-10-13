@@ -62,6 +62,8 @@ function create(t, preferences = {}) {
         : key === 'inputEl' ? control.input
         : key === 'onChange' ? fn => { control.change = fn; return api; }
         : key === 'onClick' ? fn => { control.click = fn; return api; } : () => api });
+      // Typing: the field holds the text, then the component reports it.
+      control.type = value => { control.input.value = value; control.change(value); };
       build(api);
       (this.el.controls ??= []).push(control);
       return this;
@@ -366,25 +368,25 @@ test('chat text settings tab: font, debounced custom font and size reset', async
   assert.equal(chatFont(view), '"Inter", var(--font-interface)');
 
   const text = item('Custom font').controls[0];
-  text.change('Fira');
-  text.change('Fira Code, monospace');
+  text.type('Fira');
+  text.type('Fira Code, monospace');
   assert.equal(chatFont(view), '"Inter", var(--font-interface)', 'half-typed names wait for a pause');
   t.mock.timers.tick(400);
   assert.equal(chatFont(view), '"Fira Code", monospace, var(--font-interface)', 'names are quoted; generic families are not');
 
-  text.change(' "Inter)"; color: red" ');
+  text.type(' "Inter)"; color: red" ');
   text.input.dispatchEvent(new document.defaultView.Event('blur'));
   assert.equal(chatFont(view), '"Inter)\\"; color: red", var(--font-interface)', 'leaving the field applies it; quotes are escaped inside one family name');
   assert.equal(text.value, 'Inter)"; color: red', 'the field shows the name as saved');
   assert.equal(JSON.parse(stored.get(APPEARANCE_KEY)).customFont, 'Inter)"; color: red');
 
-  text.change('Menlo');
+  text.type('Menlo');
   item('Font').controls[0].change('interface');
   assert.equal(plugin.appearance.customFont, 'Menlo', 'changing the font applies a pending name first');
   assert.equal(custom.hidden, true);
   assert.equal(chatFont(view), '', 'the default font leaves no override');
 
-  text.change('Georgia');
+  text.type('Georgia');
   tab.display();
   assert.equal(plugin.appearance.customFont, 'Georgia', 'redrawing the tab applies a pending name');
   t.mock.timers.tick(400);
@@ -425,7 +427,7 @@ test('a custom font waiting for a pause is saved on unload, not by a later timer
   const tab = plugin.settingTab;
   tab.display();
   const item = name => [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === name);
-  item('Custom font').controls[0].change('Inter');
+  item('Custom font').controls[0].type('Inter');
   await plugin.shutdown();
   assert.equal(JSON.parse(stored.get(APPEARANCE_KEY)).customFont, 'Inter');
   stored.set(APPEARANCE_KEY, JSON.stringify({ customFont: 'Newer' }));
@@ -456,10 +458,17 @@ test('changing the chat text size refits the visible prompt and a tab when shown
   plugin.tabs.select(first);
   plugin.surface.panel.render();
   assert.equal(height(prompts()[0]), '112px', 'showing the tab fits its prompt');
+  // The sidebar leaf is hidden (another sidebar tab is in front) while the size changes.
+  view.hidden = true;
+  plugin.setAppearance({ fontSize: 16 });
+  assert.equal(height(prompts()[0]), '112px', 'a hidden prompt keeps its height instead of collapsing');
+  view.hidden = false;
+  leaf.view.onResize();
+  assert.equal(height(prompts()[0]), '64px', 'Obsidian showing the leaf again refits it');
 });
 
 test('the custom font field ignores window switches, input composition and an unloaded plugin', async t => {
-  const { plugin, document } = create(t, { [APPEARANCE_KEY]: JSON.stringify({ font: 'custom', customFont: 'Inter' }) });
+  const { plugin, document, stored } = create(t, { [APPEARANCE_KEY]: JSON.stringify({ font: 'custom', customFont: 'Inter' }) });
   await plugin.onload();
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const tab = plugin.settingTab;
@@ -468,22 +477,36 @@ test('the custom font field ignores window switches, input composition and an un
   const Event = document.defaultView.Event;
   document.body.append(text.input);
   text.input.focus();
-  text.change('Inter, ');
+  text.type('Inter, ');
   text.input.dispatchEvent(new Event('blur'));
   assert.equal(plugin.appearance.customFont, 'Inter', 'a window switch keeps the field focused: nothing applies');
   assert.equal(text.value, 'Inter', 'and the field is not tidied mid-edit');
+  text.input.blur();
+  text.type('Inter, X');
+  // Chromium order: the committing input arrives before compositionend.
   text.input.dispatchEvent(new Event('compositionstart'));
-  text.change('Inter, ふ');
+  text.type('Inter, ふ');
+  text.type('Inter, ふい');
   t.mock.timers.tick(400);
-  assert.equal(plugin.appearance.customFont, 'Inter', 'a name being composed waits');
+  assert.equal(plugin.appearance.customFont, 'Inter', 'nothing applies mid-composition, not even an earlier pending name');
   text.input.dispatchEvent(new Event('compositionend'));
-  text.change('Inter, ふい');
   t.mock.timers.tick(400);
-  assert.equal(plugin.appearance.customFont, 'Inter, ふい');
+  assert.equal(plugin.appearance.customFont, 'Inter, ふい', 'the end of a composition applies the committed text');
+  text.input.dispatchEvent(new Event('compositionstart'));
+  text.type('Inter, 游');
+  text.input.dispatchEvent(new Event('blur'));
+  assert.equal(plugin.appearance.customFont, 'Inter, 游', 'leaving the field keeps what it holds, never the old name');
+  assert.equal(text.value, 'Inter, 游');
   await plugin.shutdown();
-  text.change('Old tab');
+  text.type('Old tab');
   t.mock.timers.tick(400);
-  assert.equal(plugin.appearance.customFont, 'Inter, ふい', 'a tab left open after unload writes nothing');
+  assert.equal(plugin.appearance.customFont, 'Inter, 游', 'a tab left open after unload writes nothing');
+  const saved = stored.get(APPEARANCE_KEY);
+  const item = name => [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === name);
+  item('Font').controls[0].change('monospace');
+  item('Text size').controls[0].change(22);
+  item('Text size').controls[1].click();
+  assert.equal(stored.get(APPEARANCE_KEY), saved, 'nor do its other controls');
 });
 
 test('unreadable or invalid chat text preferences fall back to the theme', async t => {
