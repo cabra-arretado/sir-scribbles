@@ -164,9 +164,13 @@ outside the plugin's control. The vault directory is context, not a sandbox.
 Under **Settings → Sir Scribbles → Chat text**, choose the **Font** for messages
 and the prompt: Obsidian's interface font (default), your note text font, the
 monospace font, or **Custom**, which takes the name of any font installed on this
-device. **Text size** sets the size in pixels, from 10 to 28; its reset button
-returns to the theme's size. Both apply to the sidebar and the floating chat and
-are stored on this device.
+device, such as `Fira Code` (no quotes needed; separate fallbacks with commas).
+**Text size** sets the size in pixels, from 10 to 28; its reset button returns to
+the theme's size. Headings, tables and code in replies scale with it. Timestamps,
+tool output and the start screen keep Obsidian's interface sizes.
+Both settings apply wherever the chats are shown: the sidebar, a sidebar moved to
+its own window, or the floating chat. They are stored on this device, for this
+vault.
 
 ## Help your agent write clickable links
 

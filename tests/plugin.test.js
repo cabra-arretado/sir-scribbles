@@ -57,7 +57,8 @@ function create(t, preferences = {}) {
     control(kind, build) {
       const control = { kind, value: undefined, change: null };
       const api = new Proxy({}, { get: (_, key) => key === 'setValue' ? value => { control.value = value; return api; }
-        : key === 'onChange' ? fn => { control.change = fn; return api; } : () => api });
+        : key === 'onChange' ? fn => { control.change = fn; return api; }
+        : key === 'onClick' ? fn => { control.click = fn; return api; } : () => api });
       build(api);
       (this.el.controls ??= []).push(control);
       return this;
@@ -317,30 +318,88 @@ test('opacity settings are grouped under Floating chat and shown only while it i
   assert.equal(tab.containerEl.querySelector('.sir-scribbles-subsettings').hidden, false, 'reopening the tab shows the group when on');
 });
 
-test('chat font and size settings apply to the document and persist per device', async t => {
-  const { plugin, document, stored } = create(t, { 'sir-scribbles:appearance:/fixture-vault': JSON.stringify({ font: 'monospace', fontSize: 99 }) });
+const APPEARANCE_KEY = 'sir-scribbles:appearance:/fixture-vault';
+const chatFont = el => el.style.getPropertyValue('--sir-scribbles-chat-font');
+const chatSize = el => el.style.getPropertyValue('--sir-scribbles-chat-font-size');
+
+test('chat text settings apply to each chat container and persist per device and vault', async t => {
+  const { plugin, leaf, stored, document } = create(t, { ...FLOATING, [APPEARANCE_KEY]: JSON.stringify({ font: 'monospace', fontSize: 99 }) });
   await plugin.onload();
-  const style = document.body.style;
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font'), 'var(--font-monospace)');
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '28px', 'stored sizes are clamped');
+  await leaf.setViewState();
+  const sidebar = leaf.view.contentEl;
+  assert.equal(chatFont(sidebar), 'var(--font-monospace)');
+  assert.equal(chatSize(sidebar), '28px', 'stored sizes are clamped');
+  assert.equal(chatFont(document.body), '', 'nothing is set on the main window, so a popout sidebar is not left out');
+  plugin.setAppearance({ fontSize: 16 });
+  assert.equal(chatSize(sidebar), '16px', 'a change reaches the mounted chats at once');
+  assert.equal(JSON.parse(stored.get(APPEARANCE_KEY)).fontSize, 16);
+  await plugin.floating.show();
+  assert.equal(chatSize(plugin.floating.body), '16px', 'the floating window follows the same settings');
+  assert.equal(chatSize(sidebar), '', 'a container no longer showing chats is cleared');
+  plugin.setAppearance({ font: 'text', fontSize: 18 });
+  const body = plugin.floating.body;
+  assert.equal(chatFont(body), 'var(--font-text)');
+  await plugin.shutdown();
+  assert.equal(chatFont(body), '', 'unloading removes the font override');
+  assert.equal(chatSize(body), '', 'unloading removes the size override');
+});
+
+test('chat text settings tab: font, debounced custom font and size reset', async t => {
+  const { plugin, leaf, stored } = create(t, { [APPEARANCE_KEY]: JSON.stringify({ font: 'custom', customFont: 'Inter', fontSize: 15 }) });
+  await plugin.onload();
+  await leaf.setViewState();
+  const view = leaf.view.contentEl;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const tab = plugin.settingTab;
   tab.display();
   const item = name => [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === name);
   const custom = item('Custom font').parentElement;
-  assert.equal(custom.hidden, true, 'custom field hidden unless Custom is chosen');
-  item('Font').controls[0].change('custom');
+  assert.equal(item('Font').controls[0].value, 'custom', 'the dropdown starts at the stored font');
+  assert.equal(item('Custom font').controls[0].value, 'Inter', 'the custom name is restored');
   assert.equal(custom.hidden, false);
-  item('Custom font').controls[0].change('"Fira Code"; color: red');
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font'), '"Fira Code" color: red, var(--font-interface)', 'a custom font cannot add declarations');
-  item('Text size').controls[0].change(16);
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '16px');
-  assert.deepEqual(JSON.parse(stored.get('sir-scribbles:appearance:/fixture-vault')).fontSize, 16);
-  plugin.setAppearance({ font: 'interface', fontSize: null });
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font'), '', 'the theme default leaves no override');
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '');
-  plugin.setAppearance({ font: 'text', fontSize: 18 });
-  await plugin.shutdown();
-  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '', 'unloading removes the overrides');
+  assert.equal(chatFont(view), '"Inter", var(--font-interface)');
+
+  const text = item('Custom font').controls[0];
+  text.change('Fira');
+  text.change('Fira Code, monospace');
+  assert.equal(chatFont(view), '"Inter", var(--font-interface)', 'half-typed names wait for a pause');
+  t.mock.timers.tick(400);
+  assert.equal(chatFont(view), '"Fira Code", monospace, var(--font-interface)', 'names are quoted; generic families are not');
+  text.change('Inter)"; color: red');
+  tab.hide();
+  assert.equal(chatFont(view), '"Inter color red", var(--font-interface)', 'closing the tab applies the pending name, cleaned to plain text');
+  assert.equal(JSON.parse(stored.get(APPEARANCE_KEY)).customFont, 'Inter color red');
+
+  item('Font').controls[0].change('interface');
+  assert.equal(custom.hidden, true);
+  assert.equal(chatFont(view), '', 'the default font leaves no override');
+
+  const slider = item('Text size').controls[0];
+  assert.equal(slider.value, 15, 'the slider starts at the stored size');
+  slider.change(20);
+  assert.equal(chatSize(view), '20px');
+  item('Text size').controls[1].click();
+  assert.equal(chatSize(view), '', 'reset follows the theme');
+  assert.equal(JSON.parse(stored.get(APPEARANCE_KEY)).fontSize, null);
+  assert.equal(slider.value, 13, "the slider sits at the theme's size");
+  tab.display();
+  assert.equal(item('Text size').controls[0].value, 13);
+});
+
+test('unreadable or invalid chat text preferences fall back to the theme', async t => {
+  for (const [stored, expected] of [
+    ['not json', { font: 'interface', customFont: '', fontSize: null }],
+    ['null', { font: 'interface', customFont: '', fontSize: null }],
+    [JSON.stringify({ font: 'comic', fontSize: 0 }), { font: 'interface', customFont: '', fontSize: null }],
+    [JSON.stringify({ font: 'text', fontSize: 'abc', customFont: 42 }), { font: 'text', customFont: '', fontSize: null }],
+    [JSON.stringify({ fontSize: false }), { font: 'interface', customFont: '', fontSize: null }],
+    [JSON.stringify({ fontSize: ' ' }), { font: 'interface', customFont: '', fontSize: null }],
+    [JSON.stringify({ fontSize: '3' }), { font: 'interface', customFont: '', fontSize: 10 }],
+  ]) {
+    const { plugin } = create(t, { [APPEARANCE_KEY]: stored });
+    await plugin.onload();
+    assert.deepEqual(plugin.appearance, expected, stored);
+  }
 });
 
 test('turning floating off keeps chats with work and shows them in the sidebar', async t => {
