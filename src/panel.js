@@ -131,14 +131,14 @@ export class ChatPanel {
     this.path.placeholder = '/absolute/path/to/agent';
     this.path.spellcheck = false;
     this.path.value = this.actions.getPath();
-    this.start = this.button('Start agent', () => this.launch('start'), 'mod-cta sir-scribbles-primary');
-    this.browse = this.button('Open a past chat', () => this.launch('browse'), 'sir-scribbles-secondary');
+    this.start = this.button('New chat', () => this.launch('start'), 'mod-cta sir-scribbles-primary');
+    this.browse = this.button('Past chats', () => this.launch('browse'), 'sir-scribbles-secondary');
     const launchRow = this.el('div', 'sir-scribbles-launch');
     launchRow.append(this.start, this.browse);
     this.startArea.append(this.labelFor(this.path, 'Agent executable path'), this.path,
       this.el('p', 'sir-scribbles-caption', 'The agent uses its existing permissions and project configuration. Starting it may initialize configured hooks or MCP servers.'),
       launchRow,
-      this.el('p', 'sir-scribbles-caption', 'Sending a prompt starts the agent on its default model. Start it first to pick another model or a past chat.'));
+      this.el('p', 'sir-scribbles-caption', 'Sending a prompt starts a chat on the agent\'s default model. Click New chat first to pick another model, or Past chats to continue one.'));
     this.pathHelp = this.el('p', 'sir-scribbles-caption', 'Executable saved. Change it in Settings → Community plugins → Sir Scribbles.');
     this.startArea.append(this.pathHelp);
     this.empty.append(this.startArea,
@@ -220,8 +220,7 @@ export class ChatPanel {
       // Save only this setting, not any conversation state.
       if (!saved) await this.actions.savePath(executable);
       if (this.disposed || generation !== this.model.generation) return;
-      if (method === 'start') await this.model.start(executable, { listPast: true });
-      else await this.model[method](executable);
+      await this.model[method](executable);
     } catch {
       if (!this.disposed && generation === this.model.generation) this.model.setError('EXECUTABLE_NOT_AVAILABLE');
     } finally {
@@ -282,10 +281,11 @@ export class ChatPanel {
   async addFiles(files) {
     const model = this.model;
     const generation = model.generation;
-    // Reads outlive agent starts and restarts; only clearing the composer
-    // (New chat, closing the tab) drops them.
+    // Reads outlive agent starts and restarts, and moving the chat to another
+    // view (sidebar, floating window); only clearing the composer (New chat,
+    // closing the tab) drops them.
     let reading = null;
-    const live = () => !this.disposed && (model.readCurrent && reading !== null ? model.readCurrent(reading) : generation === model.generation);
+    const live = () => (model.readCurrent && reading !== null ? model.readCurrent(reading) : !this.disposed && generation === model.generation);
     try {
       const kinds = files.map(file => attachmentKind(file));
       if (kinds.includes(null)) throw new OperationalError('FILE_TYPE_UNSUPPORTED');
@@ -364,12 +364,10 @@ export class ChatPanel {
     this.renderHistory();
   }
 
-  // Past chats for this vault: the picker after Open a past chat, or the
-  // offer in a chat started with Start agent until its first message.
+  // Past chats for this vault, listed after Past chats. New chat never lists them.
   renderHistory() {
     const model = this.model;
-    const offered = model.state === 'ready' && !model.messages.length && !model.loading ? model.recent : null;
-    const history = model.state === 'connected' && !model.loading ? model.history : offered;
+    const history = model.state === 'connected' && !model.loading ? model.history : null;
     if (history === this.lastHistory) return;
     this.lastHistory = history;
     this.historyArea.replaceChildren();
@@ -387,10 +385,7 @@ export class ChatPanel {
       for (const entry of history.entries) {
         const item = this.el('li');
         const title = entry.title || 'Untitled chat';
-        const button = this.button('', () => {
-          if (offered) void model.reopen(this.actions.getPath().trim(), entry.sessionId, entry.title);
-          else void model.open(entry.sessionId, entry.title);
-        }, 'sir-scribbles-history-item');
+        const button = this.button('', () => { void model.open(entry.sessionId, entry.title); }, 'sir-scribbles-history-item');
         button.append(this.el('span', 'sir-scribbles-history-title', title));
         if (entry.updatedAt !== null) {
           const date = new Date(entry.updatedAt);
@@ -405,8 +400,7 @@ export class ChatPanel {
       }
       this.historyArea.append(list);
     }
-    if (offered) return; // Already in a new chat.
-    const fresh = this.button('Start a new chat', () => { void model.open(); }, 'sir-scribbles-secondary');
+    const fresh = this.button('New chat', () => { void model.open(); }, 'sir-scribbles-secondary');
     fresh.disabled = Boolean(history.pending);
     this.historyArea.append(fresh);
   }

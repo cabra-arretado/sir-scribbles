@@ -555,68 +555,26 @@ test('a replay that finishes before the scheduled render is shown at once, not a
   assert.equal(panel.transcript.querySelector('.sir-scribbles-agent .sir-scribbles-markdown').textContent.length, 1200);
 });
 
-test('the start area says Start agent is how to choose a non-default model or a past chat', t => {
-  const { root } = create(t);
-  assert.ok(root.querySelector('.sir-scribbles-start-area').textContent.includes('Start it first to pick another model or a past chat.'));
+test('the start area offers New chat and Past chats, and says how to pick a model', t => {
+  const { root, panel } = create(t);
+  assert.equal(panel.start.textContent, 'New chat');
+  assert.equal(panel.browse.textContent, 'Past chats');
+  assert.ok(root.querySelector('.sir-scribbles-start-area').textContent.includes('Click New chat first to pick another model, or Past chats to continue one.'));
 });
 
-test('a chat started with Start agent lists past chats until its first message', t => {
-  const { model, panel, root } = create(t);
-  let reopened = null;
-  model.state = 'ready';
-  model.reopen = (...args) => { reopened = args; };
-  model.recent = { entries: [{ sessionId: 'old', title: 'Older chat', updatedAt: null }] };
-  panel.render();
-  const item = root.querySelector('.sir-scribbles-history-item');
-  assert.equal(panel.historyArea.hidden, false);
-  assert.equal(item.textContent, 'Older chat');
-  assert.ok(![...panel.historyArea.querySelectorAll('button')].some(button => button.textContent === 'Start a new chat'));
-  item.click();
-  assert.deepEqual(reopened, ['/fixture/kiro', 'old', 'Older chat']);
-  model.messages.push({ role: 'user', text: 'hi', timestamp: 0 });
+test('New chat starts a chat without listing past chats', async t => {
+  const { model, panel } = create(t);
+  const calls = [];
+  model.start = async (...args) => { calls.push(args); model.state = 'ready'; model.changed(); };
+  model.listSessions = () => assert.fail('New chat must not list past chats');
+  panel.start.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, [['/fixture/kiro']]);
   panel.render();
   assert.equal(panel.historyArea.hidden, true);
 });
 
-test('edits and removals made while a past chat reopens are kept', async t => {
-  const { model, panel, root, dom } = create(t);
-  const { EventEmitter } = await import('node:events');
-  let closing = null;
-  const sessions = [];
-  model.validate = async () => {};
-  model.launch = () => ({});
-  model.createSession = () => {
-    const session = Object.assign(new EventEmitter(), {
-      permissions: new Map(), canLoad: () => true, listSessions: async () => [],
-      connect: async () => { session.emit('state', 'connected'); return {}; },
-      open: async (cwd, sessionId) => { session.opened = sessionId; session.emit('state', 'ready'); return { configOptions: [] }; },
-      close: () => new Promise(resolve => { closing = resolve; }),
-    });
-    sessions.push(session);
-    return session;
-  };
-  await model.start('/fixture/kiro');
-  model.setDraft('Original draft');
-  model.attach(Object.freeze({ path: 'note.md', from: 1, to: 1, text: 'quoted' }));
-  model.attach(Object.freeze({ kind: 'file', path: 'whole.md' }));
-  panel.render();
-  const reopening = model.reopen('/fixture/kiro', 'old', 'Older chat');
-  panel.render();
-  panel.composer.value = 'Edited draft';
-  panel.composer.dispatchEvent(new dom.window.Event('input'));
-  for (const button of root.querySelectorAll('.sir-scribbles-context-remove')) button.click();
-  panel.render();
-  closing();
-  await reopening;
-  panel.render();
-  assert.equal(sessions.at(-1).opened, 'old');
-  assert.equal(model.draft, 'Edited draft');
-  assert.equal(panel.composer.value, 'Edited draft');
-  assert.equal(model.selection, null);
-  assert.equal(model.file, null);
-});
-
-test('after a refused reopen the panel shows the past chats and Start a new chat', t => {
+test('after a refused reopen the panel shows the past chats and New chat', t => {
   const { model, panel } = create(t);
   model.state = 'connected';
   model.history = { entries: [{ sessionId: 'old', title: 'Older chat', updatedAt: null }] };
@@ -624,7 +582,7 @@ test('after a refused reopen the panel shows the past chats and Start a new chat
   panel.render();
   assert.equal(panel.historyArea.hidden, false);
   assert.ok(panel.historyArea.textContent.includes('Older chat'));
-  assert.ok([...panel.historyArea.querySelectorAll('button')].some(button => button.textContent === 'Start a new chat'));
+  assert.ok([...panel.historyArea.querySelectorAll('button')].some(button => button.textContent === 'New chat'));
 });
 
 test('pasted files become chips: images as a thumbnail with an X, text with its name', async t => {
@@ -750,6 +708,33 @@ test('a slow paste survives Start agent and still attaches', async t => {
   model.setDraft('go');
   panel.renderControls();
   assert.equal(panel.send.disabled, false);
+});
+
+test('a file still reading when the chat moves to another view is attached', async t => {
+  const { dom, model, panel } = create(t);
+  let finish;
+  const slow = { name: 'slow.md', type: 'text/plain', size: 4, arrayBuffer: () => new Promise(resolve => { finish = () => resolve(new TextEncoder().encode('late').buffer); }) };
+  const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+  event.clipboardData = { files: [slow] };
+  panel.composer.dispatchEvent(event);
+  panel.dispose(); // Moving between the sidebar and the floating window.
+  finish();
+  await tick();
+  assert.equal(model.reading, 0);
+  assert.deepEqual(model.attachments.map(item => item.text), ['late']);
+});
+
+test('a file still reading when the composer is cleared is dropped', async t => {
+  const { dom, model, panel } = create(t);
+  let finish;
+  const slow = { name: 'slow.md', type: 'text/plain', size: 4, arrayBuffer: () => new Promise(resolve => { finish = () => resolve(new TextEncoder().encode('late').buffer); }) };
+  const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+  event.clipboardData = { files: [slow] };
+  panel.composer.dispatchEvent(event);
+  model.clearComposer();
+  finish();
+  await tick();
+  assert.deepEqual(model.attachments, []);
 });
 
 test('a real Kiro write request explains itself and offers its always choices', t => {

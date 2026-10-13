@@ -4,8 +4,11 @@ import { ChatTabs, TabbedPanel } from './tabs.js';
 import { captureSelection, captureFile } from './draft.js';
 import { validateExecutable } from './process.js';
 import { statusBarInset } from './layout.js';
+import { FloatingChat, OPACITY, clampOpacity } from './floating.js';
 
 const VIEW_TYPE = 'sir-scribbles';
+// States in which a chat has an agent doing something for the user.
+const BUSY = ['starting', 'working', 'waiting-for-approval', 'stopping'];
 // File types Obsidian displays in its own views. Agent links never create a
 // note or hand another kind of file to the system's default app.
 const NOTE_EXTENSIONS = new Set(['md', 'canvas', 'base', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'avif']);
@@ -26,12 +29,30 @@ function storePath(app, path) {
   if (!key) throw new Error('Local desktop vault required');
   globalThis.localStorage.setItem(key, path);
 }
+// Floating chat preferences are per device too, beside the executable path.
+function floatingKey(app) {
+  const adapter = app.vault.adapter;
+  return adapter instanceof FileSystemAdapter ? `sir-scribbles:floating:${adapter.getBasePath()}` : null;
+}
+function loadFloating(app) {
+  const key = floatingKey(app);
+  try {
+    const value = JSON.parse((key && globalThis.localStorage?.getItem(key)) || '{}');
+    const size = Number.isFinite(value?.size?.width) && Number.isFinite(value?.size?.height) ? { width: value.size.width, height: value.size.height } : null;
+    return { enabled: value?.enabled === true, opacity: clampOpacity(value?.opacity), activeOpacity: clampOpacity(value?.activeOpacity, OPACITY.active), size };
+  } catch { return { enabled: false, opacity: OPACITY.initial, activeOpacity: OPACITY.active, size: null }; }
+}
+function storeFloating(app, preferences) {
+  const key = floatingKey(app);
+  try { if (key) globalThis.localStorage.setItem(key, JSON.stringify(preferences)); }
+  catch { /* Preferences are a convenience; the setting still applies for this session. */ }
+}
 
 class CloseModal extends Modal {
   constructor(app, resolve) { super(app); this.resolve = resolve; this.accepted = false; }
   onOpen() {
     this.titleEl.textContent = 'Close this chat?';
-    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and its attachments. The agent keeps its own history, so you may be able to reopen the chat from Open a past chat.' });
+    this.contentEl.createEl('p', { text: 'This ends its agent, stops any reply in progress and discards the unsent prompt and its attachments. The agent keeps its own history, so you may be able to reopen the chat from Past chats.' });
     new Setting(this.contentEl)
       .addButton(button => button.setButtonText('Keep chat').onClick(() => this.close()))
       .addButton(button => button.setButtonText('Close chat').setCta().onClick(() => { this.accepted = true; this.close(); }));
@@ -57,34 +78,7 @@ class ScribblesView extends ItemView {
     }
     if (this.plugin.cleanupPending) await this.plugin.cleanupPending;
     if (this.closed || this.plugin.unloaded) return;
-    const cwd = adapter.getBasePath();
-    this.tabs = this.plugin.tabs ?? new ChatTabs(() => new ChatController(cwd, {
-      getSourcePath: () => this.plugin.lastEditor?.file?.path ?? '',
-    }));
-    if (this.tabs.disposed) this.tabs.recover();
-    if (!this.tabs.chats.length) this.tabs.add();
-    this.plugin.tabs = this.tabs;
-    this.panel = new TabbedPanel(this.contentEl, this.tabs, {
-      setIcon,
-      getPath: () => this.plugin.executablePath,
-      savePath: async path => { await validateExecutable(path); await this.plugin.savePath(path); },
-      attachSelection: () => captureSelection(this.plugin.lastEditor, view =>
-        view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view)),
-      attachFile: () => captureFile(this.plugin.lastEditor, view =>
-        view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view)),
-      confirmClose: () => new Promise(resolve => new CloseModal(this.app, resolve).open()),
-      copyText: text => this.contentEl.ownerDocument.defaultView.navigator.clipboard.writeText(text),
-      vaultPath: cwd,
-      openNote: async (target, sourcePath, newLeaf) => {
-        if (typeof target === 'object') {
-          if (target.vault && target.vault !== this.app.vault.getName()) throw new Error('Different vault');
-          target = target.path;
-        }
-        const file = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(target), sourcePath);
-        if (!file || !NOTE_EXTENSIONS.has(file.extension.toLowerCase())) throw new Error('Not a note in this vault');
-        await this.app.workspace.openLinkText(target, sourcePath, newLeaf);
-      },
-    });
+    this.plugin.showSidebar(this);
     this.reserveStatusBar();
   }
   // Keep the composer clear of the floating status bar. Only the footer moves,
@@ -106,19 +100,12 @@ class ScribblesView extends ItemView {
   }
   async onClose() {
     this.closed = true;
-    this.panel?.dispose();
     if (this.plugin.activeView !== this) return;
     this.plugin.activeView = null;
-    this.plugin.lastEditor = null;
-    const tabs = this.tabs;
-    if (!tabs) return;
-    // Keep the owner during asynchronous shutdown, preventing a fresh Start
-    // from racing the old process groups' exit.
-    this.plugin.cleanupPending = tabs.dispose();
-    const clean = await this.plugin.cleanupPending;
-    if (clean) this.plugin.tabs = null;
-    else new Notice('Agent cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.', 0);
-    this.plugin.cleanupPending = null;
+    if (this.plugin.surface?.container === this.contentEl) this.plugin.unmount();
+    this.panel = null;
+    // The floating chat keeps the chats; otherwise closing the sidebar ends them.
+    if (!this.plugin.floating.enabled) await this.plugin.releaseTabs();
   }
 }
 
@@ -135,6 +122,25 @@ class ScribblesSettings extends PluginSettingTab {
         try { await validateExecutable(path); await this.plugin.savePath(path); status.textContent = 'Executable path saved. The agent was not started.'; }
         catch { status.textContent = 'Choose an existing executable using its absolute path.'; }
       }));
+    // The opacity sliders belong to the floating chat: one indented group,
+    // shown only while it is on.
+    let opacity;
+    new Setting(this.containerEl).setName('Floating chat')
+      .setDesc('Add a chat icon to the status bar that opens a translucent chat window over your notes, without opening the sidebar. Hiding the window keeps chats running. Turning this off moves chats with content to the sidebar and ends the rest.')
+      .addToggle(toggle => toggle.setValue(this.plugin.floatingPreferences.enabled).onChange(async value => {
+        opacity.hidden = !value;
+        await this.plugin.setFloating({ enabled: value });
+      }));
+    opacity = this.containerEl.createEl('div', { cls: 'sir-scribbles-subsettings' });
+    opacity.hidden = !this.plugin.floatingPreferences.enabled;
+    new Setting(opacity).setName('Opacity while in use')
+      .setDesc('While the pointer is over the window or you are typing in it.')
+      .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.activeOpacity)
+        .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ activeOpacity: value }); }));
+    new Setting(opacity).setName('Opacity when not in use')
+      .setDesc('The rest of the time, so your notes show through.')
+      .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.opacity)
+        .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ opacity: value }); }));
   }
 }
 
@@ -147,9 +153,28 @@ export default class SirScribblesPlugin extends Plugin {
     this.activeView = null;
     this.tabs = null;
     this.cleanupPending = null;
+    this.surface = null;
+    this.activity = () => this.floating.setActivity(this.tabs?.chats.map(chat => chat.state) ?? []);
+    this.floatingPreferences = loadFloating(this.app);
+    this.floating = new FloatingChat(this.app.workspace.containerEl?.ownerDocument ?? globalThis.document, {
+      setIcon,
+      onShow: body => this.showFloating(body),
+      onHide: () => this.hideFloating(),
+      onSidebar: async () => { await this.floating.hide({ focus: false }); await this.openChat(); },
+      onResize: size => { void this.setFloating({ size }); },
+      // The status bar is always visible and never covers a note or the sidebar.
+      launcherHost: () => this.addStatusBarItem(),
+    });
+    this.floating.setOpacity({ idle: this.floatingPreferences.opacity, active: this.floatingPreferences.activeOpacity });
+    this.floating.setSize(this.floatingPreferences.size);
     this.registerView(VIEW_TYPE, leaf => new ScribblesView(leaf, this));
     this.addRibbonIcon('messages-square', 'Open Sir Scribbles', () => { void this.openChat(); });
     this.addCommand({ id: 'open-chat', name: 'Open chat', callback: () => { void this.openChat(); } });
+    this.addCommand({ id: 'toggle-floating-chat', name: 'Show or hide floating chat', checkCallback: checking => {
+      if (!this.floating.enabled) return false;
+      if (!checking) void this.floating.toggle();
+      return true;
+    } });
     this.addSettingTab(new ScribblesSettings(this.app, this));
     this.registerEvent(this.app.workspace.on('quit', tasks => {
       // Obsidian waits for Tasks during a normal quit. Plugin onunload alone
@@ -162,11 +187,144 @@ export default class SirScribblesPlugin extends Plugin {
     // Reads only editor identity. Context text is captured exclusively on Attach click.
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active) this.lastEditor = active;
+    if (this.floatingPreferences.enabled && this.vaultPath()) this.enableFloating();
   }
   async savePath(path) {
     storePath(this.app, path);
     this.executablePath = path;
-    this.activeView?.panel?.renderAll();
+    this.surface?.panel.renderAll();
+  }
+  vaultPath() {
+    const adapter = this.app.vault.adapter;
+    return adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null;
+  }
+
+  // One set of chats, shown in one place at a time: the sidebar or the
+  // floating window. Panels are views only; moving them never stops an agent.
+  ensureTabs() {
+    if (!this.tabs) {
+      const cwd = this.vaultPath();
+      this.tabs = new ChatTabs(() => new ChatController(cwd, {
+        getSourcePath: () => this.lastEditor?.file?.path ?? '',
+      }));
+    }
+    if (this.tabs.disposed) this.tabs.recover();
+    // Disposing drops every listener, so the launcher's is re-added each time.
+    this.tabs.off('change', this.activity);
+    this.tabs.on('change', this.activity);
+    if (!this.tabs.chats.length) this.tabs.add();
+    return this.tabs;
+  }
+  mount(container) {
+    this.unmount();
+    const panel = new TabbedPanel(container, this.ensureTabs(), this.panelActions(container));
+    this.surface = { container, panel };
+    return panel;
+  }
+  unmount() {
+    if (!this.surface) return;
+    this.surface.panel.dispose();
+    this.surface = null;
+  }
+  panelActions(container) {
+    const cwd = this.vaultPath();
+    const isEditor = view => view instanceof MarkdownView && this.app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view === view);
+    return {
+      setIcon,
+      getPath: () => this.executablePath,
+      savePath: async path => { await validateExecutable(path); await this.savePath(path); },
+      attachSelection: () => captureSelection(this.lastEditor, isEditor),
+      attachFile: () => captureFile(this.lastEditor, isEditor),
+      confirmClose: () => new Promise(resolve => new CloseModal(this.app, resolve).open()),
+      copyText: text => container.ownerDocument.defaultView.navigator.clipboard.writeText(text),
+      vaultPath: cwd,
+      openNote: async (target, sourcePath, newLeaf) => {
+        if (typeof target === 'object') {
+          if (target.vault && target.vault !== this.app.vault.getName()) throw new Error('Different vault');
+          target = target.path;
+        }
+        const file = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(target), sourcePath);
+        if (!file || !NOTE_EXTENSIONS.has(file.extension.toLowerCase())) throw new Error('Not a note in this vault');
+        await this.app.workspace.openLinkText(target, sourcePath, newLeaf);
+      },
+    };
+  }
+  showSidebar(view) {
+    if (this.floating.open) this.placeholder(view);
+    else view.panel = this.mount(view.contentEl);
+  }
+  // The sidebar stays open but points at the floating window.
+  placeholder(view) {
+    view.panel = null;
+    const doc = view.contentEl.ownerDocument;
+    const box = doc.createElement('div');
+    box.className = 'sir-scribbles-elsewhere';
+    const text = doc.createElement('p');
+    text.textContent = 'Your chats are open in the floating window.';
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Show chats here';
+    button.addEventListener('click', () => { void this.floating.hide({ focus: false }); });
+    box.append(text, button);
+    view.contentEl.replaceChildren(box);
+    view.contentEl.classList.add('sir-scribbles-root');
+  }
+  // Chats being disposed must never be recovered into a view: that would let
+  // a new draft or process start before the old process groups have exited.
+  // Wait for any cleanup, then check the target is still wanted.
+  async settled() {
+    while (this.cleanupPending) await this.cleanupPending;
+    return !this.unloaded;
+  }
+  async showFloating(body) {
+    if (!(await this.settled()) || !this.floating.open || this.floating.body !== body) return;
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active) this.lastEditor = active;
+    this.unmount();
+    if (this.activeView) this.placeholder(this.activeView);
+    this.mount(body);
+  }
+  async hideFloating() {
+    if (this.surface?.container === this.floating.body) this.unmount();
+    const view = this.activeView;
+    if (!view || !(await this.settled())) return;
+    if (this.activeView !== view || view.closed || this.floating.open) return;
+    view.panel = this.mount(view.contentEl);
+  }
+  async setFloating(changes) {
+    this.floatingPreferences = { ...this.floatingPreferences, ...changes };
+    this.floatingPreferences.opacity = clampOpacity(this.floatingPreferences.opacity);
+    this.floatingPreferences.activeOpacity = clampOpacity(this.floatingPreferences.activeOpacity, OPACITY.active);
+    storeFloating(this.app, this.floatingPreferences);
+    this.floating.setOpacity({ idle: this.floatingPreferences.opacity, active: this.floatingPreferences.activeOpacity });
+    // A quick off-then-on waits for the teardown, so the launcher comes back.
+    if (this.floating.disabling) await this.floating.disabling;
+    if (this.floatingPreferences.enabled === this.floating.enabled || !this.vaultPath()) return;
+    if (this.floatingPreferences.enabled) { this.enableFloating(); return; }
+    await this.floating.disable();
+    if (this.activeView || !this.tabs) return;
+    // Nothing can show the chats now. Keep any with work in them visible in
+    // the sidebar instead of silently ending them; end the rest.
+    if (this.tabs.chats.some(chat => chat.messages.length || chat.hasDraft() || BUSY.includes(chat.state))) await this.openChat();
+    else await this.releaseTabs();
+  }
+  // A new launcher starts from the chats' current states, not the next change.
+  enableFloating() {
+    this.floating.enable();
+    this.activity();
+  }
+  // Ends every agent. Keeps the owner during asynchronous shutdown, preventing
+  // a fresh Start from racing the old process groups' exit.
+  async releaseTabs() {
+    const tabs = this.tabs;
+    if (!tabs || this.cleanupPending) return;
+    this.lastEditor = null;
+    this.floating.setActivity([]);
+    this.cleanupPending = tabs.dispose();
+    const clean = await this.cleanupPending;
+    if (clean) { if (this.tabs === tabs) this.tabs = null; }
+    else new Notice('Agent cleanup could not be confirmed. Reopen Sir Scribbles and force stop before starting another process.', 0);
+    this.cleanupPending = null;
   }
   async openChat() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
@@ -179,13 +337,16 @@ export default class SirScribblesPlugin extends Plugin {
   }
   async shutdown() {
     this.unloaded = true;
-    this.activeView?.panel?.dispose();
+    this.unmount();
     this.lastEditor = null;
-    if (!this.shutdownPending) this.shutdownPending = (async () => {
-      const clean = (await (this.cleanupPending ?? this.tabs?.dispose())) ?? true;
+    // One shared shutdown: agent cleanup starts at once, and the floating
+    // window's teardown runs beside it and is awaited too.
+    if (!this.shutdownPending) this.shutdownPending = (async (teardown, cleanup) => {
+      await teardown;
+      const clean = (await cleanup) ?? true;
       if (!clean) new Notice('Agent cleanup could not be confirmed on unload. Check the CLI process in your terminal.', 0);
       return clean;
-    })();
+    })(this.floating?.disable(), this.cleanupPending ?? this.tabs?.dispose());
     return this.shutdownPending;
   }
   onunload() { void this.shutdown(); }

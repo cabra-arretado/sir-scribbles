@@ -11,7 +11,7 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
 ## Disclosures
 
 - **Runs an external program.** The plugin starts the Kiro CLI executable you
-  choose, only when you click **Start agent** or **Open a past chat**, or send
+  choose, only when you click **New chat** or **Past chats**, or send
   your first prompt. Each chat tab runs its own Kiro process (up to five at once).
   It never installs, updates or downloads anything.
 - **Requires a Kiro account.** Kiro needs its own login; the plugin stores no
@@ -28,8 +28,9 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
   `~/.kiro/workspace-roots/` outside the vault. Kiro then applies it without
   asking, in every chat. The plugin never writes that file itself.
 - **No telemetry or ads.** The plugin keeps conversations in memory only. Kiro
-  keeps its own chat history; **Open a past chat** asks Kiro for it. The only
-  saved setting is the executable path, stored on this device.
+  keeps its own chat history; **Past chats** asks Kiro for it. The only saved
+  settings are the executable path and the floating chat preferences (on or off,
+  opacity, window size), stored on this device.
 
 ## Install
 
@@ -48,20 +49,20 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
 ## Use the sidebar
 
 1. On first setup, enter the absolute path to your already installed Kiro executable.
-   The path is saved and reused; later chats show **Start agent** without asking
+   The path is saved and reused; later chats show **New chat** without asking
    for the path again. Change it under **Settings → Community plugins → Sir Scribbles**
    if the executable moves or startup fails. Settings
    also provides **Validate and save**, which checks the file without running it.
 2. Review the displayed vault directory. With a saved executable, sending your
    first prompt starts ACP and sends after initialization succeeds, using the
-   agent's default model. To choose another model, click **Start agent** first and
+   agent's default model. To choose another model, click **New chat** first and
    pick it from the composer; when the model offers more than one reasoning effort
-   level, an effort picker appears beside it. Until you send, that new chat also lists this vault's
-   past chats; choosing one restarts the agent into it and keeps your draft. Opening the sidebar or typing never starts a process.
+   level, an effort picker appears beside it. **New chat** starts the chat straight
+   away; it does not list past chats. Opening the sidebar or typing never starts a process.
    Starting Kiro may initialize its configured hooks and MCP servers.
-   To continue an earlier conversation, click **Open a past chat**. This starts
+   To continue an earlier conversation, click **Past chats**. This starts
    Kiro and lists the chats it has kept for this vault, newest first. Choose one
-   to reopen it with its history, or **Start a new chat**. Reopened messages show
+   to reopen it with its history, or **New chat**. Reopened messages show
    no time, because the agent does not send one. Typing a prompt in the list
    starts a new chat. Agents that cannot list or reopen chats say so here.
 3. Type a prompt. Select text in a Markdown editor and click **+ Selection**
@@ -121,13 +122,38 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
    stops every owned process group. A tab whose cleanup is uncertain stays open
    with **Force stop agent** until recovery succeeds.
 
+### Floating chat
+
+Turn on **Settings → Sir Scribbles → Floating chat** to chat without opening the
+sidebar. A chat icon appears in the status bar; click it, or run **Sir Scribbles:
+Show or hide floating chat**, to open a window over your notes. The window is
+translucent while you are not using it, so your notes show through. While
+**Floating chat** is on, two settings appear beneath it, each from 40% to 100%:
+**Opacity while in use** applies while the pointer is over the window or you are
+typing in it (default 100%), and **Opacity when not in use** applies the rest of
+the time (default 85%).
+To resize the window, drag the small grip in its top-left corner, or focus the grip
+and use the arrow keys; it grows up and to the left. These settings and the
+window size are stored on this device, like the executable path.
+
+The sidebar and the floating window show the same chats, one place at a time:
+opening the window moves your chats, drafts and attachments into it, and the
+sidebar offers **Show chats here** to move them back. The window's sidebar
+button does the same. Hiding the window (its **−** button, the status bar icon
+or Escape) keeps every chat running; the icon shows a dot while a chat is
+working, yellow when one is waiting for your approval. With floating chat on,
+closing the sidebar keeps chats running for the window. Turning floating chat
+off while the sidebar is closed opens the sidebar if any chat has messages, a
+draft or work in progress, so nothing is lost; otherwise it ends the idle chats.
+
 On a normal Obsidian quit, the plugin registers an awaited cleanup task: it ends
 ACP, sends SIGTERM to its owned process group, and escalates to SIGKILL after two
 seconds if needed. Each conversation is discarded from the sidebar; reopening
 the sidebar starts with one fresh tab. Crashes, force quits, and descendants that detach from the process group
 cannot be guaranteed to clean up.
 
-Only the executable path is saved, in this device's local storage. The plugin does not archive
+Only the executable path and the floating chat preferences (on or off, opacity,
+window size) are saved, in this device's local storage. The plugin does not archive
 prompts, attachments, transcripts, session IDs or tool details. Past chats come
 from the agent each time you open the list. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain

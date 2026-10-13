@@ -87,10 +87,13 @@ export class TabbedPanel {
     this.strip = this.el('div', 'sir-scribbles-tabs');
     this.strip.setAttribute('role', 'tablist');
     // No aria-label: Obsidian would show it as a tooltip over the whole strip.
-    this.add = this.iconButton('plus', 'New chat', () => {
+    this.add = this.iconButton('plus', '', () => {
       const chat = this.tabs.add();
       if (chat) this.render();
     }, 'sir-scribbles-tab-add');
+    // Named by hidden text, so it has no tooltip; the + speaks for itself.
+    this.add.removeAttribute('aria-label');
+    this.add.append(this.el('span', 'sir-scribbles-sr-only', 'Add a chat tab'));
     this.panes = this.el('div', 'sir-scribbles-panes');
     container.append(this.strip, this.panes);
     this.listener = () => this.schedule();
@@ -171,7 +174,9 @@ export class TabbedPanel {
     // Re-appending keeps the strip in chat order with the add button last.
     this.strip.append(...this.tabs.chats.map(chat => this.entries.get(chat).tab), this.add);
     this.add.disabled = this.tabs.full;
-    this.add.title = this.tabs.full ? `Up to ${this.tabs.limit} chats at once. Close one to start another.` : 'New chat';
+    // Only the limit needs explaining.
+    if (this.tabs.full) this.add.title = `Up to ${this.tabs.limit} chats at once. Close one to start another.`;
+    else this.add.removeAttribute('title');
   }
   // Re-render every chat, for example after the executable path changed.
   renderAll() {
