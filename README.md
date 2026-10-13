@@ -29,8 +29,8 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
   asking, in every chat. The plugin never writes that file itself.
 - **No telemetry or ads.** The plugin keeps conversations in memory only. Kiro
   keeps its own chat history; **Past chats** asks Kiro for it. The only saved
-  settings are the executable path and the floating chat preferences (on or off,
-  opacity, window size), stored on this device.
+  settings are the executable path, the floating chat preferences (on or off,
+  opacity, window size) and the chat text font and size, stored on this device.
 
 ## Install
 
@@ -158,6 +158,19 @@ prompts, attachments, transcripts, session IDs or tool details. Past chats come
 from the agent each time you open the list. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain
 outside the plugin's control. The vault directory is context, not a sandbox.
+
+### Chat text
+
+Under **Settings → Sir Scribbles → Chat text**, choose the **Font** for messages
+and the prompt: Obsidian's interface font (default), your note text font, the
+monospace font, or **Custom**, which takes the name of any font installed on this
+device, such as `Fira Code` (no quotes needed; separate fallbacks with commas).
+**Text size** sets the size in pixels, from 10 to 28; its reset button returns to
+the theme's size. Headings, tables and code in replies scale with it. Timestamps,
+tool output and the start screen keep Obsidian's interface sizes.
+Both settings apply wherever the chats are shown: the sidebar, a sidebar moved to
+its own window, or the floating chat. They are stored on this device, for this
+vault.
 
 ## Help your agent write clickable links
 

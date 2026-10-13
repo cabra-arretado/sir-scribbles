@@ -5,6 +5,7 @@ import { captureSelection, captureFile } from './draft.js';
 import { validateExecutable } from './process.js';
 import { statusBarInset } from './layout.js';
 import { FloatingChat, OPACITY, clampOpacity } from './floating.js';
+import { FONTS, FONT_SIZE, DEFAULT_APPEARANCE, normalizeAppearance, applyAppearance, themeFontSize } from './appearance.js';
 
 const VIEW_TYPE = 'sir-scribbles';
 // States in which a chat has an agent doing something for the user.
@@ -13,12 +14,25 @@ const BUSY = ['starting', 'working', 'waiting-for-approval', 'stopping'];
 // note or hand another kind of file to the system's default app.
 const NOTE_EXTENSIONS = new Set(['md', 'canvas', 'base', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'avif']);
 
-// The executable path is a device setting, not vault content. Plugin data lives
-// inside the vault, where sync or a shared repository could change what runs.
-function pathKey(app) {
+// Device settings live in local storage, one key per vault. Plugin data lives
+// inside the vault, where sync or a shared repository could change them.
+function preferenceKey(app, name) {
   const adapter = app.vault.adapter;
-  return adapter instanceof FileSystemAdapter ? `sir-scribbles:executable:${adapter.getBasePath()}` : null;
+  return adapter instanceof FileSystemAdapter ? `sir-scribbles:${name}:${adapter.getBasePath()}` : null;
 }
+// JSON preferences are a convenience: unreadable ones fall back to defaults,
+// and a failed write still applies for this session.
+function readPreferences(app, name) {
+  const key = preferenceKey(app, name);
+  return JSON.parse((key && globalThis.localStorage?.getItem(key)) || '{}');
+}
+function writePreferences(app, name, preferences) {
+  const key = preferenceKey(app, name);
+  try { if (key) globalThis.localStorage.setItem(key, JSON.stringify(preferences)); }
+  catch { /* Kept for this session only. */ }
+}
+// The executable path decides what runs, so it is never vault content.
+function pathKey(app) { return preferenceKey(app, 'executable'); }
 function loadPath(app) {
   const key = pathKey(app);
   try { const value = key && globalThis.localStorage?.getItem(key); return typeof value === 'string' ? value : ''; }
@@ -29,23 +43,16 @@ function storePath(app, path) {
   if (!key) throw new Error('Local desktop vault required');
   globalThis.localStorage.setItem(key, path);
 }
-// Floating chat preferences are per device too, beside the executable path.
-function floatingKey(app) {
-  const adapter = app.vault.adapter;
-  return adapter instanceof FileSystemAdapter ? `sir-scribbles:floating:${adapter.getBasePath()}` : null;
-}
 function loadFloating(app) {
-  const key = floatingKey(app);
   try {
-    const value = JSON.parse((key && globalThis.localStorage?.getItem(key)) || '{}');
+    const value = readPreferences(app, 'floating');
     const size = Number.isFinite(value?.size?.width) && Number.isFinite(value?.size?.height) ? { width: value.size.width, height: value.size.height } : null;
     return { enabled: value?.enabled === true, opacity: clampOpacity(value?.opacity), activeOpacity: clampOpacity(value?.activeOpacity, OPACITY.active), size };
   } catch { return { enabled: false, opacity: OPACITY.initial, activeOpacity: OPACITY.active, size: null }; }
 }
-function storeFloating(app, preferences) {
-  const key = floatingKey(app);
-  try { if (key) globalThis.localStorage.setItem(key, JSON.stringify(preferences)); }
-  catch { /* Preferences are a convenience; the setting still applies for this session. */ }
+function loadAppearance(app) {
+  try { return normalizeAppearance(readPreferences(app, 'appearance')); }
+  catch { return { ...DEFAULT_APPEARANCE }; }
 }
 
 class CloseModal extends Modal {
@@ -65,6 +72,9 @@ class ScribblesView extends ItemView {
   getViewType() { return VIEW_TYPE; }
   getDisplayText() { return 'Sir Scribbles'; }
   getIcon() { return 'messages-square'; }
+  // Obsidian reports a leaf becoming visible or changing size here; a prompt
+  // could not be measured while the leaf was hidden.
+  onResize() { this.panel?.refit(); }
   async onOpen() {
     if (this.plugin.activeView && this.plugin.activeView !== this) {
       this.leaf.detach(); // Restored duplicate layouts focus one owner; never launch a second process.
@@ -109,9 +119,13 @@ class ScribblesView extends ItemView {
   }
 }
 
+// Typing a custom font waits for a pause, so half-typed names never show.
+const CUSTOM_FONT_DELAY_MS = 400;
+
 class ScribblesSettings extends PluginSettingTab {
-  constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
+  constructor(app, plugin) { super(app, plugin); this.plugin = plugin; this.pendingFont = null; }
   display() {
+    this.flushFont();
     this.containerEl.empty();
     this.containerEl.createEl('p', { text: 'macOS developer preview. Install and sign in to your ACP agent in your terminal; Kiro CLI (V3) is currently the only supported agent. Selecting a path does not run it.' });
     let path = this.plugin.executablePath;
@@ -141,7 +155,75 @@ class ScribblesSettings extends PluginSettingTab {
       .setDesc('The rest of the time, so your notes show through.')
       .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.opacity)
         .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ opacity: value }); }));
+    this.displayAppearance();
   }
+  displayAppearance() {
+    const appearance = this.plugin.appearance;
+    new Setting(this.containerEl).setName('Chat text').setHeading();
+    let custom;
+    new Setting(this.containerEl).setName('Font')
+      .setDesc('The font for messages and the prompt, in the sidebar and the floating chat.')
+      .addDropdown(dropdown => {
+        for (const [value, { label }] of Object.entries(FONTS)) dropdown.addOption(value, label);
+        dropdown.setValue(appearance.font).onChange(value => {
+          custom.hidden = value !== 'custom';
+          this.flushFont();
+          this.plugin.setAppearance({ font: value });
+        });
+      });
+    custom = this.containerEl.createEl('div', { cls: 'sir-scribbles-subsettings' });
+    custom.hidden = appearance.font !== 'custom';
+    new Setting(custom).setName('Custom font')
+      .setDesc('The name of a font installed on this device, such as Inter or Fira Code. Separate fallbacks with commas.')
+      .addText(text => {
+        const input = text.inputEl;
+        const schedule = value => {
+          this.flushFont(false);
+          const apply = () => { this.pendingFont = null; this.plugin.setAppearance({ customFont: value }); };
+          this.pendingFont = { apply, timer: setTimeout(apply, CUSTOM_FONT_DELAY_MS) };
+        };
+        // A name being composed with an input method is not a name yet.
+        // Chromium sends the committing input before compositionend, so the
+        // end of a composition schedules the field's value itself.
+        let composing = false;
+        input.addEventListener('compositionstart', () => { composing = true; this.flushFont(false); });
+        input.addEventListener('compositionend', () => { composing = false; schedule(input.value); });
+        text.setPlaceholder('Inter').setValue(appearance.customFont).onChange(value => { if (!composing) schedule(value); });
+        // Leaving the field applies what it holds and shows it as saved.
+        // Never while typing: tidying would eat a space before the next word.
+        input.addEventListener('blur', () => {
+          // Switching to another app blurs the field but keeps it focused here: not leaving it.
+          if (this.plugin.unloaded || input.ownerDocument.activeElement === input) return;
+          this.flushFont(false);
+          composing = false;
+          this.plugin.setAppearance({ customFont: input.value });
+          text.setValue(this.plugin.appearance.customFont);
+        });
+      });
+    // While the size follows the theme, the slider sits at the theme's size.
+    const theme = () => themeFontSize(this.containerEl.ownerDocument);
+    let slider;
+    new Setting(this.containerEl).setName('Text size')
+      .setDesc(`In pixels, from ${FONT_SIZE.min} to ${FONT_SIZE.max}. Reset to follow the theme.`)
+      .addSlider(control => {
+        slider = control;
+        control.setLimits(FONT_SIZE.min, FONT_SIZE.max, FONT_SIZE.step).setValue(appearance.fontSize ?? theme())
+          .setDynamicTooltip().onChange(value => { this.plugin.setAppearance({ fontSize: value }); });
+      })
+      .addExtraButton(button => button.setIcon('rotate-ccw').setTooltip('Follow the theme').onClick(() => {
+        // Move the slider first: if that reports a change, the reset still wins.
+        slider?.setValue(theme());
+        this.plugin.setAppearance({ fontSize: null });
+      }));
+  }
+  // Applies a custom font still waiting for a pause, or drops it.
+  flushFont(apply = true) {
+    if (!this.pendingFont) return;
+    clearTimeout(this.pendingFont.timer);
+    if (apply) this.pendingFont.apply();
+    this.pendingFont = null;
+  }
+  hide() { this.flushFont(); super.hide?.(); }
 }
 
 export default class SirScribblesPlugin extends Plugin {
@@ -156,12 +238,13 @@ export default class SirScribblesPlugin extends Plugin {
     this.surface = null;
     this.activity = () => this.floating.setActivity(this.tabs?.chats.map(chat => chat.state) ?? []);
     this.floatingPreferences = loadFloating(this.app);
+    this.appearance = loadAppearance(this.app);
     this.floating = new FloatingChat(this.app.workspace.containerEl?.ownerDocument ?? globalThis.document, {
       setIcon,
       onShow: body => this.showFloating(body),
       onHide: () => this.hideFloating(),
       onSidebar: async () => { await this.floating.hide({ focus: false }); await this.openChat(); },
-      onResize: size => { void this.setFloating({ size }); },
+      onResize: size => { void this.setFloating({ size }); this.surface?.panel.refit(); },
       // The status bar is always visible and never covers a note or the sidebar.
       launcherHost: () => this.addStatusBarItem(),
     });
@@ -175,7 +258,8 @@ export default class SirScribblesPlugin extends Plugin {
       if (!checking) void this.floating.toggle();
       return true;
     } });
-    this.addSettingTab(new ScribblesSettings(this.app, this));
+    this.settingsTab = new ScribblesSettings(this.app, this);
+    this.addSettingTab(this.settingsTab);
     this.registerEvent(this.app.workspace.on('quit', tasks => {
       // Obsidian waits for Tasks during a normal quit. Plugin onunload alone
       // cannot keep the app alive while asynchronous process cleanup finishes.
@@ -193,6 +277,14 @@ export default class SirScribblesPlugin extends Plugin {
     storePath(this.app, path);
     this.executablePath = path;
     this.surface?.panel.renderAll();
+  }
+  setAppearance(changes) {
+    // A settings tab left open across an unload or reload must not write over the new plugin.
+    if (this.unloaded) return;
+    this.appearance = normalizeAppearance({ ...this.appearance, ...changes });
+    writePreferences(this.app, 'appearance', this.appearance);
+    applyAppearance(this.surface?.container, this.appearance);
+    this.surface?.panel.refit();
   }
   vaultPath() {
     const adapter = this.app.vault.adapter;
@@ -218,12 +310,15 @@ export default class SirScribblesPlugin extends Plugin {
   mount(container) {
     this.unmount();
     const panel = new TabbedPanel(container, this.ensureTabs(), this.panelActions(container));
+    // On the container itself, so a popout window's sidebar follows too.
+    applyAppearance(container, this.appearance);
     this.surface = { container, panel };
     return panel;
   }
   unmount() {
     if (!this.surface) return;
     this.surface.panel.dispose();
+    applyAppearance(this.surface.container, DEFAULT_APPEARANCE);
     this.surface = null;
   }
   panelActions(container) {
@@ -295,7 +390,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.floatingPreferences = { ...this.floatingPreferences, ...changes };
     this.floatingPreferences.opacity = clampOpacity(this.floatingPreferences.opacity);
     this.floatingPreferences.activeOpacity = clampOpacity(this.floatingPreferences.activeOpacity, OPACITY.active);
-    storeFloating(this.app, this.floatingPreferences);
+    writePreferences(this.app, 'floating', this.floatingPreferences);
     this.floating.setOpacity({ idle: this.floatingPreferences.opacity, active: this.floatingPreferences.activeOpacity });
     // A quick off-then-on waits for the teardown, so the launcher comes back.
     if (this.floating.disabling) await this.floating.disabling;
@@ -336,6 +431,9 @@ export default class SirScribblesPlugin extends Plugin {
     if (leaf) { await leaf.setViewState({ type: VIEW_TYPE, active: true }); await this.app.workspace.revealLeaf(leaf); }
   }
   async shutdown() {
+    // A custom font waiting for a pause is saved now, never by a timer that
+    // outlives this plugin and overwrites a reloaded one.
+    if (!this.unloaded) this.settingsTab?.flushFont();
     this.unloaded = true;
     this.unmount();
     this.lastEditor = null;

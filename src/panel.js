@@ -230,7 +230,9 @@ export class ChatPanel {
   }
 
   fitComposer() {
-    // Grow with the draft up to the CSS max-height, then scroll.
+    // Grow with the draft up to the CSS max-height, then scroll. A prompt
+    // that is not laid out measures 0: keep its height until it can be measured.
+    if (!this.composer.scrollHeight) return;
     this.composer.style.removeProperty('--sir-scribbles-prompt-height');
     if (this.composer.scrollHeight) this.composer.style.setProperty('--sir-scribbles-prompt-height', `${this.composer.scrollHeight}px`);
   }
