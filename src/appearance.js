@@ -10,8 +10,10 @@ export const FONTS = {
   custom: { label: 'Custom', css: null },
 };
 export const DEFAULT_APPEARANCE = { font: 'interface', customFont: '', fontSize: null };
-// Generic families are CSS keywords and must stay unquoted.
-const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded']);
+const FONT_NAMES_MAX = 200;
+// Generic families and system font keywords stop working when quoted.
+const KEYWORDS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif',
+  'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong', '-apple-system', 'blinkmacsystemfont']);
 
 // Only a positive number (or numeric string) is a size; anything else follows the theme.
 export function clampFontSize(value) {
@@ -20,12 +22,28 @@ export function clampFontSize(value) {
   return Math.min(FONT_SIZE.max, Math.max(FONT_SIZE.min, Math.round(number)));
 }
 
-// A custom font is a list of family names: letters, digits, spaces, dots,
-// hyphens and underscores, separated by commas. Quotes are added here, so
-// nothing typed can produce invalid CSS or reach another property.
+// A custom font is a list of family names separated by commas. Any name a
+// font may have is kept; only control characters and the user's own
+// surrounding quotes go. Whole names that would pass the length limit are
+// dropped, never cut.
 export function cleanFontName(value) {
   if (typeof value !== 'string') return '';
-  return value.replace(/[^\p{L}\p{N} ,._-]/gu, '').split(',').map(name => name.trim().replace(/\s+/g, ' ')).filter(Boolean).join(', ').slice(0, 200);
+  const names = [];
+  let length = 0;
+  for (const part of value.normalize('NFC').replace(/[\p{Cc}\p{Cf}]/gu, ' ').split(',')) {
+    const name = part.trim().replace(/^(["'])(.*)\1$/u, '$2').trim().replace(/\s+/g, ' ');
+    if (!name) continue;
+    length += (names.length ? 2 : 0) + name.length;
+    if (length > FONT_NAMES_MAX) break;
+    names.push(name);
+  }
+  return names.join(', ');
+}
+
+// Each name becomes a quoted CSS string, so no name can end the string or
+// reach another property; keywords stay bare.
+function cssFamily(name) {
+  return KEYWORDS.has(name.toLowerCase()) ? name : `"${name.replace(/[\\"]/g, '\\$&')}"`;
 }
 
 export function normalizeAppearance(value) {
@@ -37,7 +55,7 @@ export function fontFamily({ font, customFont }) {
   if (font === 'custom') {
     const names = cleanFontName(customFont);
     if (!names) return null;
-    return `${names.split(', ').map(name => GENERIC.has(name.toLowerCase()) ? name : `"${name}"`).join(', ')}, var(--font-interface)`;
+    return `${names.split(', ').map(cssFamily).join(', ')}, var(--font-interface)`;
   }
   return font === DEFAULT_APPEARANCE.font ? null : FONTS[font].css;
 }
@@ -52,9 +70,18 @@ export function applyAppearance(target, appearance) {
 }
 
 // The theme's chat size, for placing the slider while it follows the theme.
-export function themeFontSize(target) {
+// Themes may set it in rem, em or calc(), so a probe measures the resolved
+// pixels instead of reading the variable's text.
+export function themeFontSize(doc) {
+  let probe;
   try {
-    const size = parseFloat(target.ownerDocument.defaultView.getComputedStyle(target).getPropertyValue('--font-ui-small'));
+    probe = doc.createElement('span');
+    probe.style.setProperty('font-size', 'var(--font-ui-small)');
+    probe.style.setProperty('position', 'absolute');
+    probe.style.setProperty('visibility', 'hidden');
+    doc.body.append(probe);
+    const size = parseFloat(doc.defaultView.getComputedStyle(probe).fontSize);
     return clampFontSize(size) ?? FONT_SIZE.theme;
   } catch { return FONT_SIZE.theme; }
+  finally { probe?.remove(); }
 }

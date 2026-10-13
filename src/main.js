@@ -172,13 +172,21 @@ class ScribblesSettings extends PluginSettingTab {
     custom.hidden = appearance.font !== 'custom';
     new Setting(custom).setName('Custom font')
       .setDesc('The name of a font installed on this device, such as Inter or Fira Code. Separate fallbacks with commas.')
-      .addText(text => text.setPlaceholder('Inter').setValue(appearance.customFont).onChange(value => {
-        this.flushFont(false);
-        const apply = () => { this.pendingFont = null; this.plugin.setAppearance({ customFont: value }); };
-        this.pendingFont = { apply, timer: setTimeout(apply, CUSTOM_FONT_DELAY_MS) };
-      }));
+      .addText(text => {
+        text.setPlaceholder('Inter').setValue(appearance.customFont).onChange(value => {
+          this.flushFont(false);
+          const apply = () => { this.pendingFont = null; this.plugin.setAppearance({ customFont: value }); };
+          this.pendingFont = { apply, timer: setTimeout(apply, CUSTOM_FONT_DELAY_MS) };
+        });
+        // Leaving the field applies the name and shows it as it was saved.
+        // Never while typing: tidying would eat a space before the next word.
+        text.inputEl.addEventListener('blur', () => {
+          this.flushFont();
+          text.setValue(this.plugin.appearance.customFont);
+        });
+      });
     // While the size follows the theme, the slider sits at the theme's size.
-    const theme = () => themeFontSize(this.containerEl.ownerDocument.body);
+    const theme = () => themeFontSize(this.containerEl.ownerDocument);
     let slider;
     new Setting(this.containerEl).setName('Text size')
       .setDesc(`In pixels, from ${FONT_SIZE.min} to ${FONT_SIZE.max}. Reset to follow the theme.`)
@@ -200,7 +208,7 @@ class ScribblesSettings extends PluginSettingTab {
     if (apply) this.pendingFont.apply();
     this.pendingFont = null;
   }
-  hide() { this.flushFont(); }
+  hide() { this.flushFont(); super.hide?.(); }
 }
 
 export default class SirScribblesPlugin extends Plugin {
@@ -235,7 +243,8 @@ export default class SirScribblesPlugin extends Plugin {
       if (!checking) void this.floating.toggle();
       return true;
     } });
-    this.addSettingTab(new ScribblesSettings(this.app, this));
+    this.settingsTab = new ScribblesSettings(this.app, this);
+    this.addSettingTab(this.settingsTab);
     this.registerEvent(this.app.workspace.on('quit', tasks => {
       // Obsidian waits for Tasks during a normal quit. Plugin onunload alone
       // cannot keep the app alive while asynchronous process cleanup finishes.
@@ -405,6 +414,9 @@ export default class SirScribblesPlugin extends Plugin {
   }
   async shutdown() {
     this.unloaded = true;
+    // A custom font waiting for a pause is saved now, never by a timer that
+    // outlives this plugin and overwrites a reloaded one.
+    this.settingsTab?.flushFont();
     this.unmount();
     this.lastEditor = null;
     // One shared shutdown: agent cleanup starts at once, and the floating

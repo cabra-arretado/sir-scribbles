@@ -94,7 +94,8 @@
 .sir-scribbles-markdown > :last-child { margin-bottom: 0; }
 .sir-scribbles-markdown p { margin: 0 0 var(--size-4-2); }
 .sir-scribbles-markdown :is(h1, h2, h3, h4, h5, h6) { line-height: var(--line-height-tight); margin: var(--size-4-4) 0 var(--size-4-2); font-weight: var(--font-semibold); }
-/* Ratios of Obsidian's default UI sizes (20, 15, 12 over 13px), so the theme size looks as before. */
+/* Headings and tables scale with the chat text, in the ratios of Obsidian's default UI sizes
+   (20, 15, 12 over 13px). A theme's own --font-ui-large or -medium no longer changes them. */
 .sir-scribbles-markdown h1 { font-size: 1.54em; }
 .sir-scribbles-markdown h2 { font-size: 1.154em; }
 .sir-scribbles-markdown :is(h3, h4, h5, h6) { font-size: 1em; }
