@@ -79,6 +79,7 @@ export class FloatingChat {
   // Repeated calls share one teardown.
   disable() {
     if (!this.disabling && this.enabled) this.disabling = (async () => {
+      this.launcher.disabled = true;
       await this.hide({ focus: false });
       this.window.remove();
       this.launcher.remove();
@@ -92,7 +93,8 @@ export class FloatingChat {
   // agent cleanup, so whatever finishes late checks it is still the latest
   // transition and touches only the nodes it started with.
   async show() {
-    if (!this.enabled || this.open) return;
+    // A window being disabled may still be waiting for cleanup; never reopen it.
+    if (!this.enabled || this.open || this.disabling) return;
     const transition = ++this.transition;
     const { window: frame, body } = this;
     // Open but invisible until the chats are mounted, so no empty frame shows.

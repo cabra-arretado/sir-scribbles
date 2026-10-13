@@ -427,3 +427,22 @@ test('disabling while a hide waits for cleanup never rejects and returns the cha
   assert.equal(document.querySelector('.sir-scribbles-floating'), null);
   assert.equal(plugin.surface.container, leaf.view.contentEl);
 });
+
+test('the launcher cannot reopen a window that is being disabled', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  await plugin.floating.show();
+  const settle = deferCleanup(plugin);
+  const disabling = plugin.setFloating({ enabled: false });
+  assert.equal(plugin.floating.launcher.disabled, true);
+  plugin.floating.launcher.click();
+  const showing = plugin.floating.show();
+  assert.equal(plugin.floating.open, false);
+  settle();
+  await Promise.all([disabling, showing]);
+  assert.equal(plugin.floating.enabled, false);
+  assert.equal(plugin.surface.container, leaf.view.contentEl, 'the sidebar owns the chats');
+  assert.ok(leaf.view.contentEl.querySelector('textarea'), 'with a composer');
+  assert.equal(leaf.view.contentEl.querySelector('.sir-scribbles-elsewhere'), null);
+});
