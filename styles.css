@@ -305,6 +305,7 @@ summary.sir-scribbles-selection-header { cursor: var(--cursor); }
   opacity: var(--sir-scribbles-floating-opacity, .85); transition: opacity .15s ease;
 }
 .sir-scribbles-floating[hidden] { display: none; }
+.sir-scribbles-floating.is-loading { visibility: hidden; }
 .sir-scribbles-floating.above-launcher { bottom: calc(var(--size-4-4) + 52px); }
 .sir-scribbles-floating:is(:hover, :focus-within) { opacity: var(--sir-scribbles-floating-active-opacity, 1); }
 .sir-scribbles-floating-header {
@@ -326,3 +327,8 @@ summary.sir-scribbles-selection-header { cursor: var(--cursor); }
 .sir-scribbles-floating.is-resizing { opacity: var(--sir-scribbles-floating-active-opacity, 1); transition: none; user-select: none; }
 .sir-scribbles-elsewhere { display: flex; flex-direction: column; align-items: center; gap: var(--size-4-2); margin: auto; padding: var(--size-4-6); text-align: center; color: var(--text-muted); }
 @media (prefers-reduced-motion: reduce) { .sir-scribbles-floating { transition: none; } }
+
+/* Settings: options that belong to Floating chat sit indented beneath it. */
+.sir-scribbles-subsettings { margin-left: var(--size-4-2); padding-left: var(--size-4-4); border-left: 2px solid var(--background-modifier-border); }
+.sir-scribbles-subsettings[hidden] { display: none; }
+.sir-scribbles-subsettings .setting-item:first-child { border-top: none; }

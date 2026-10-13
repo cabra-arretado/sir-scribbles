@@ -63,7 +63,8 @@ export class FloatingChat {
     this.window.append(this.resizeHandle(), header, this.body);
     // Escape hides the window unless a control inside already handled it.
     this.window.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); void this.hide(); }
+      // Escape during IME composition only cancels the composition.
+      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); void this.hide(); }
     });
     this.setOpacity(this.opacity);
     this.setSize(this.size);
@@ -84,16 +85,22 @@ export class FloatingChat {
 
   async show() {
     if (!this.enabled || this.open) return;
+    // Open but invisible until the chats are mounted, so no empty frame shows.
     this.window.hidden = false;
+    this.window.classList.add('is-loading');
     this.launcher.setAttribute('aria-expanded', 'true');
     this.launcher.setAttribute('aria-label', 'Hide floating chat');
     await this.actions.onShow?.(this.body);
-    if (this.open) this.window.querySelector('textarea')?.focus();
+    if (!this.open) return;
+    this.window.classList.remove('is-loading');
+    // Inactive tabs are hidden; focus the composer of the one on screen.
+    this.window.querySelector('[role="tabpanel"]:not([hidden]) textarea')?.focus();
   }
 
   async hide({ focus = true } = {}) {
     if (!this.open) return;
     this.window.hidden = true;
+    this.window.classList.remove('is-loading');
     this.launcher.setAttribute('aria-expanded', 'false');
     this.launcher.setAttribute('aria-label', 'Show floating chat');
     await this.actions.onHide?.(this.body);
@@ -131,9 +138,10 @@ export class FloatingChat {
     const grip = this.el('button', 'sir-scribbles-floating-resize');
     grip.type = 'button';
     grip.setAttribute('aria-label', 'Resize floating chat');
+    // The rendered size: CSS may have clamped a stored size to a smaller window.
     const current = () => {
       const box = this.window.getBoundingClientRect();
-      return this.size ?? { width: box.width, height: box.height };
+      return box.width && box.height ? { width: box.width, height: box.height } : this.size ?? { width: 0, height: 0 };
     };
     const finish = () => { if (this.size) this.actions.onResize?.(this.size); };
     grip.addEventListener('pointerdown', event => {

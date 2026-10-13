@@ -28,8 +28,9 @@ Obsidian hosts the plugin; the ACP agent supplies the conversation and tools.
   `~/.kiro/workspace-roots/` outside the vault. Kiro then applies it without
   asking, in every chat. The plugin never writes that file itself.
 - **No telemetry or ads.** The plugin keeps conversations in memory only. Kiro
-  keeps its own chat history; **Past chats** asks Kiro for it. The only
-  saved setting is the executable path, stored on this device.
+  keeps its own chat history; **Past chats** asks Kiro for it. The only saved
+  settings are the executable path and the floating chat preferences (on or off,
+  opacity, window size), stored on this device.
 
 ## Install
 
@@ -126,10 +127,11 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
 Turn on **Settings → Sir Scribbles → Floating chat** to chat without opening the
 sidebar. A chat icon appears in the status bar; click it, or run **Sir Scribbles:
 Show or hide floating chat**, to open a window over your notes. The window is
-translucent while you are not using it, so your notes show through. Two settings
-control this, each from 40% to 100%: **Floating chat opacity while in use** applies
-while the pointer is over the window or you are typing in it (default 100%), and
-**Floating chat opacity when not in use** applies the rest of the time (default 85%).
+translucent while you are not using it, so your notes show through. While
+**Floating chat** is on, two settings appear beneath it, each from 40% to 100%:
+**Opacity while in use** applies while the pointer is over the window or you are
+typing in it (default 100%), and **Opacity when not in use** applies the rest of
+the time (default 85%).
 To resize the window, drag the small grip in its top-left corner, or focus the grip
 and use the arrow keys; it grows up and to the left. These settings and the
 window size are stored on this device, like the executable path.
@@ -141,7 +143,8 @@ button does the same. Hiding the window (its **−** button, the status bar icon
 or Escape) keeps every chat running; the icon shows a dot while a chat is
 working, yellow when one is waiting for your approval. With floating chat on,
 closing the sidebar keeps chats running for the window. Turning floating chat
-off while the sidebar is closed ends them, like closing the sidebar.
+off while the sidebar is closed opens the sidebar if any chat has messages, a
+draft or work in progress, so nothing is lost; otherwise it ends the idle chats.
 
 On a normal Obsidian quit, the plugin registers an awaited cleanup task: it ends
 ACP, sends SIGTERM to its owned process group, and escalates to SIGKILL after two

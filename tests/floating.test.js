@@ -162,3 +162,52 @@ test('arrow keys on the grip resize in steps; the size never exceeds the viewpor
   assert.equal(floating.setSize(null), null);
   assert.equal(floating.window.style.width, '');
 });
+
+test('Escape during IME composition never hides the window', async t => {
+  const { floating, dom } = create(t);
+  floating.enable();
+  await floating.show();
+  floating.body.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+  assert.equal(floating.open, true);
+});
+
+test('the window stays invisible until its chats are mounted', async t => {
+  let mount;
+  const { floating } = create(t, { onShow: () => new Promise(resolve => { mount = resolve; }) });
+  floating.enable();
+  const showing = floating.show();
+  assert.equal(floating.open, true);
+  assert.ok(floating.window.classList.contains('is-loading'));
+  mount();
+  await showing;
+  assert.equal(floating.window.classList.contains('is-loading'), false);
+});
+
+test('opening focuses the composer of the active tab, not the first one', async t => {
+  const { floating, document } = create(t, { onShow: body => {
+    for (const hidden of [true, false]) {
+      const pane = document.createElement('div');
+      pane.setAttribute('role', 'tabpanel');
+      pane.hidden = hidden;
+      pane.append(document.createElement('textarea'));
+      body.append(pane);
+    }
+  } });
+  floating.enable();
+  await floating.show();
+  const [first, active] = floating.body.querySelectorAll('textarea');
+  assert.equal(document.activeElement, active);
+  assert.notEqual(document.activeElement, first);
+});
+
+test('resizing starts from the size on screen when CSS has clamped the stored one', t => {
+  const resized = [];
+  const { floating, dom } = create(t, { onResize: size => resized.push(size) });
+  floating.enable();
+  floating.setSize({ width: 600, height: 600 });
+  // A smaller Obsidian window: CSS max-width/max-height show it at 400×350.
+  floating.window.getBoundingClientRect = () => ({ width: 400, height: 350 });
+  const grip = floating.window.querySelector('.sir-scribbles-floating-resize');
+  grip.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+  assert.deepEqual(resized, [{ width: 420, height: 350 }]);
+});

@@ -7,6 +7,8 @@ import { statusBarInset } from './layout.js';
 import { FloatingChat, OPACITY, clampOpacity } from './floating.js';
 
 const VIEW_TYPE = 'sir-scribbles';
+// States in which a chat has an agent doing something for the user.
+const BUSY = ['starting', 'working', 'waiting-for-approval', 'stopping'];
 // File types Obsidian displays in its own views. Agent links never create a
 // note or hand another kind of file to the system's default app.
 const NOTE_EXTENSIONS = new Set(['md', 'canvas', 'base', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp', 'avif']);
@@ -120,17 +122,23 @@ class ScribblesSettings extends PluginSettingTab {
         try { await validateExecutable(path); await this.plugin.savePath(path); status.textContent = 'Executable path saved. The agent was not started.'; }
         catch { status.textContent = 'Choose an existing executable using its absolute path.'; }
       }));
+    // The opacity sliders belong to the floating chat: one indented group,
+    // shown only while it is on.
+    let opacity;
     new Setting(this.containerEl).setName('Floating chat')
-      .setDesc('Show a chat button over your notes that opens a translucent chat window, without opening the sidebar. Hiding the window keeps chats running; turning this off while the sidebar is closed ends them.')
+      .setDesc('Add a chat icon to the status bar that opens a translucent chat window over your notes, without opening the sidebar. Hiding the window keeps chats running. Turning this off moves chats with content to the sidebar and ends the rest.')
       .addToggle(toggle => toggle.setValue(this.plugin.floatingPreferences.enabled).onChange(async value => {
+        opacity.hidden = !value;
         await this.plugin.setFloating({ enabled: value });
       }));
-    new Setting(this.containerEl).setName('Floating chat opacity while in use')
-      .setDesc('How opaque the floating window is while the pointer is over it or you are typing in it.')
+    opacity = this.containerEl.createEl('div', { cls: 'sir-scribbles-subsettings' });
+    opacity.hidden = !this.plugin.floatingPreferences.enabled;
+    new Setting(opacity).setName('Opacity while in use')
+      .setDesc('While the pointer is over the window or you are typing in it.')
       .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.activeOpacity)
         .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ activeOpacity: value }); }));
-    new Setting(this.containerEl).setName('Floating chat opacity when not in use')
-      .setDesc('How opaque the floating window is while the pointer is elsewhere and you are not typing in it, so your notes show through.')
+    new Setting(opacity).setName('Opacity when not in use')
+      .setDesc('The rest of the time, so your notes show through.')
       .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.opacity)
         .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ opacity: value }); }));
   }
@@ -283,8 +291,11 @@ export default class SirScribblesPlugin extends Plugin {
     if (this.floatingPreferences.enabled === this.floating.enabled || !this.vaultPath()) return;
     if (this.floatingPreferences.enabled) { this.floating.enable(); return; }
     await this.floating.disable();
-    // With neither the sidebar nor the floating chat, nothing can show the chats.
-    if (!this.activeView) await this.releaseTabs();
+    if (this.activeView || !this.tabs) return;
+    // Nothing can show the chats now. Keep any with work in them visible in
+    // the sidebar instead of silently ending them; end the rest.
+    if (this.tabs.chats.some(chat => chat.messages.length || chat.hasDraft() || BUSY.includes(chat.state))) await this.openChat();
+    else await this.releaseTabs();
   }
   // Ends every agent. Keeps the owner during asynchronous shutdown, preventing
   // a fresh Start from racing the old process groups' exit.

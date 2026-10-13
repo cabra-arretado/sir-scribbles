@@ -29,7 +29,7 @@ function create(t, preferences = {}) {
     registerView(type, factory) { this.factory = factory; }
     addRibbonIcon(icon, title, fn) { this.ribbon = fn; }
     addCommand(command) { this.command = command; }
-    addSettingTab() {}
+    addSettingTab(tab) { this.settingTab = tab; }
     addStatusBarItem() { const item = dom.window.document.createElement('div'); item.className = 'status-bar-item'; dom.window.document.body.append(item); return item; }
     registerEvent() {}
   }
@@ -37,8 +37,36 @@ function create(t, preferences = {}) {
   class MarkdownView {}
   class FileSystemAdapter { getBasePath() { return '/fixture-vault'; } }
   class Modal {}
-  class PluginSettingTab {}
-  class Setting {}
+  // Enough of Obsidian's settings API to render the tab and drive its controls.
+  const domHelpers = node => Object.assign(node, {
+    empty() { node.replaceChildren(); },
+    createEl(tag, { text, cls, attr } = {}) {
+      const child = domHelpers(dom.window.document.createElement(tag));
+      if (text) child.textContent = text;
+      if (cls) child.className = cls;
+      for (const [name, value] of Object.entries(attr ?? {})) child.setAttribute(name, value);
+      node.append(child);
+      return child;
+    },
+  });
+  class PluginSettingTab { constructor(app) { this.app = app; this.containerEl = domHelpers(dom.window.document.createElement('div')); } }
+  class Setting {
+    constructor(container) { this.el = container.createEl('div', { cls: 'setting-item' }); this.controls = {}; }
+    setName(name) { this.el.dataset.name = name; return this; }
+    setDesc() { return this; }
+    control(kind, build) {
+      const control = { kind, value: undefined, change: null };
+      const api = new Proxy({}, { get: (_, key) => key === 'setValue' ? value => { control.value = value; return api; }
+        : key === 'onChange' ? fn => { control.change = fn; return api; } : () => api });
+      build(api);
+      (this.el.controls ??= []).push(control);
+      return this;
+    }
+    addText(build) { return this.control('text', build); }
+    addButton(build) { return this.control('button', build); }
+    addToggle(build) { return this.control('toggle', build); }
+    addSlider(build) { return this.control('slider', build); }
+  }
   class Notice {}
   const getLinkpath = link => link.split('#')[0];
   const api = { Plugin, ItemView, MarkdownView, FileSystemAdapter, Modal, PluginSettingTab, Setting, Notice, getLinkpath };
@@ -263,4 +291,39 @@ test('both opacity settings are stored and applied to the window', async t => {
   await plugin.setFloating({ activeOpacity: 95 });
   assert.equal(style.getPropertyValue('--sir-scribbles-floating-active-opacity'), '0.95');
   assert.equal(JSON.parse(stored.get('sir-scribbles:floating:/fixture-vault')).activeOpacity, 95);
+});
+
+test('opacity settings are grouped under Floating chat and shown only while it is on', async t => {
+  const { plugin } = create(t);
+  await plugin.onload();
+  const tab = plugin.settingTab;
+  tab.display();
+  const item = name => [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === name);
+  const group = tab.containerEl.querySelector('.sir-scribbles-subsettings');
+  assert.equal(item('Floating chat').nextElementSibling, group, 'the group sits right under its switch');
+  assert.deepEqual([...group.children].map(node => node.dataset.name), ['Opacity while in use', 'Opacity when not in use']);
+  assert.equal(group.hidden, true, 'hidden while floating chat is off');
+  const toggle = item('Floating chat').controls[0];
+  await toggle.change(true);
+  assert.equal(group.hidden, false);
+  assert.equal(plugin.floating.enabled, true);
+  await toggle.change(false);
+  assert.equal(group.hidden, true);
+  await plugin.setFloating({ enabled: true });
+  tab.display();
+  assert.equal(tab.containerEl.querySelector('.sir-scribbles-subsettings').hidden, false, 'reopening the tab shows the group when on');
+});
+
+test('turning floating off keeps chats with work and shows them in the sidebar', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await plugin.floating.show();
+  const tabs = plugin.tabs;
+  tabs.active.setDraft('Unsent thought');
+  await plugin.setFloating({ enabled: false });
+  assert.equal(tabs.disposed, false, 'a draft is never discarded by a setting');
+  assert.equal(plugin.tabs, tabs);
+  assert.equal(plugin.activeView, leaf.view, 'the sidebar opened to show them');
+  assert.equal(plugin.surface.container, leaf.view.contentEl);
+  assert.equal(plugin.tabs.active.draft, 'Unsent thought');
 });
