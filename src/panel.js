@@ -281,10 +281,11 @@ export class ChatPanel {
   async addFiles(files) {
     const model = this.model;
     const generation = model.generation;
-    // Reads outlive agent starts and restarts; only clearing the composer
-    // (New chat, closing the tab) drops them.
+    // Reads outlive agent starts and restarts, and moving the chat to another
+    // view (sidebar, floating window); only clearing the composer (New chat,
+    // closing the tab) drops them.
     let reading = null;
-    const live = () => !this.disposed && (model.readCurrent && reading !== null ? model.readCurrent(reading) : generation === model.generation);
+    const live = () => (model.readCurrent && reading !== null ? model.readCurrent(reading) : !this.disposed && generation === model.generation);
     try {
       const kinds = files.map(file => attachmentKind(file));
       if (kinds.includes(null)) throw new OperationalError('FILE_TYPE_UNSUPPORTED');

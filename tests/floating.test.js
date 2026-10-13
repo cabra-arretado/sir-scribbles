@@ -211,3 +211,15 @@ test('resizing starts from the size on screen when CSS has clamped the stored on
   grip.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
   assert.deepEqual(resized, [{ width: 420, height: 350 }]);
 });
+
+test('disabling twice shares one teardown', async t => {
+  const { floating, document } = create(t);
+  floating.enable();
+  await floating.show();
+  const first = floating.disable();
+  const second = floating.disable();
+  assert.equal(first, second);
+  await Promise.all([first, second]);
+  assert.equal(document.body.children.length, 0);
+  await floating.disable();
+});

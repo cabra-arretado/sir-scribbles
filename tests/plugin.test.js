@@ -327,3 +327,63 @@ test('turning floating off keeps chats with work and shows them in the sidebar',
   assert.equal(plugin.surface.container, leaf.view.contentEl);
   assert.equal(plugin.tabs.active.draft, 'Unsent thought');
 });
+
+test('hiding the window never recovers chats that are still cleaning up', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  await plugin.floating.show();
+  // An earlier owner is still shutting its process groups down.
+  let settle;
+  plugin.cleanupPending = new Promise(resolve => { settle = resolve; });
+  const hiding = plugin.floating.hide();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(plugin.surface, null, 'no view, so no control can start a process yet');
+  assert.equal(leaf.view.contentEl.querySelector('.sir-scribbles-tabs, textarea, .sir-scribbles-primary'), null);
+  plugin.cleanupPending = null;
+  settle(true);
+  await hiding;
+  assert.equal(plugin.surface.container, leaf.view.contentEl, 'mounted once cleanup settled');
+});
+
+test('a chat waiting before floating is enabled lights the new launcher at once', async t => {
+  const { plugin, leaf } = create(t);
+  await plugin.onload();
+  await leaf.setViewState();
+  plugin.tabs.active.state = 'waiting-for-approval';
+  await plugin.setFloating({ enabled: true });
+  assert.equal(plugin.floating.launcher.dataset.activity, 'approval');
+});
+
+test('a chat already working lights the launcher when floating is restored on load', async t => {
+  const { plugin, leaf } = create(t);
+  await plugin.onload();
+  await leaf.setViewState();
+  plugin.tabs.active.state = 'working';
+  plugin.floatingPreferences.enabled = true;
+  plugin.enableFloating();
+  assert.equal(plugin.floating.launcher.dataset.activity, 'working');
+});
+
+test('repeated shutdown shares one floating teardown and never rejects', async t => {
+  const { plugin, document } = create(t, FLOATING);
+  await plugin.onload();
+  await plugin.floating.show();
+  let teardowns = 0;
+  const disable = plugin.floating.disable.bind(plugin.floating);
+  plugin.floating.disable = () => { teardowns++; return disable(); };
+  const results = await Promise.all([plugin.shutdown(), plugin.shutdown()]);
+  assert.equal(teardowns, 1, 'the second shutdown reuses the first');
+  assert.deepEqual(results, [true, true]);
+  assert.equal(document.querySelector('.sir-scribbles-floating, .sir-scribbles-floating-launcher'), null);
+});
+
+test('turning floating off and straight back on leaves the launcher on', async t => {
+  const { plugin } = create(t, FLOATING);
+  await plugin.onload();
+  await plugin.floating.show();
+  const off = plugin.setFloating({ enabled: false });
+  const on = plugin.setFloating({ enabled: true });
+  await Promise.all([off, on]);
+  assert.equal(plugin.floating.enabled, true);
+});

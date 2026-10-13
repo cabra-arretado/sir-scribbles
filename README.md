@@ -152,7 +152,8 @@ seconds if needed. Each conversation is discarded from the sidebar; reopening
 the sidebar starts with one fresh tab. Crashes, force quits, and descendants that detach from the process group
 cannot be guaranteed to clean up.
 
-Only the executable path is saved, in this device's local storage. The plugin does not archive
+Only the executable path and the floating chat preferences (on or off, opacity,
+window size) are saved, in this device's local storage. The plugin does not archive
 prompts, attachments, transcripts, session IDs or tool details. Past chats come
 from the agent each time you open the list. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain

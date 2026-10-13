@@ -187,7 +187,7 @@ export default class SirScribblesPlugin extends Plugin {
     // Reads only editor identity. Context text is captured exclusively on Attach click.
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active) this.lastEditor = active;
-    if (this.floatingPreferences.enabled && this.vaultPath()) this.floating.enable();
+    if (this.floatingPreferences.enabled && this.vaultPath()) this.enableFloating();
   }
   async savePath(path) {
     storePath(this.app, path);
@@ -269,18 +269,27 @@ export default class SirScribblesPlugin extends Plugin {
     view.contentEl.replaceChildren(box);
     view.contentEl.classList.add('sir-scribbles-root');
   }
+  // Chats being disposed must never be recovered into a view: that would let
+  // a new draft or process start before the old process groups have exited.
+  // Wait for any cleanup, then check the target is still wanted.
+  async settled() {
+    while (this.cleanupPending) await this.cleanupPending;
+    return !this.unloaded;
+  }
   async showFloating(body) {
-    if (this.cleanupPending) await this.cleanupPending;
-    if (this.unloaded || !this.floating.open) return;
+    if (!(await this.settled()) || !this.floating.open || this.floating.body !== body) return;
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (active) this.lastEditor = active;
     this.unmount();
     if (this.activeView) this.placeholder(this.activeView);
     this.mount(body);
   }
-  hideFloating() {
+  async hideFloating() {
     if (this.surface?.container === this.floating.body) this.unmount();
-    if (this.activeView && !this.unloaded) this.activeView.panel = this.mount(this.activeView.contentEl);
+    const view = this.activeView;
+    if (!view || !(await this.settled())) return;
+    if (this.activeView !== view || view.closed || this.floating.open) return;
+    view.panel = this.mount(view.contentEl);
   }
   async setFloating(changes) {
     this.floatingPreferences = { ...this.floatingPreferences, ...changes };
@@ -288,14 +297,21 @@ export default class SirScribblesPlugin extends Plugin {
     this.floatingPreferences.activeOpacity = clampOpacity(this.floatingPreferences.activeOpacity, OPACITY.active);
     storeFloating(this.app, this.floatingPreferences);
     this.floating.setOpacity({ idle: this.floatingPreferences.opacity, active: this.floatingPreferences.activeOpacity });
+    // A quick off-then-on waits for the teardown, so the launcher comes back.
+    if (this.floating.disabling) await this.floating.disabling;
     if (this.floatingPreferences.enabled === this.floating.enabled || !this.vaultPath()) return;
-    if (this.floatingPreferences.enabled) { this.floating.enable(); return; }
+    if (this.floatingPreferences.enabled) { this.enableFloating(); return; }
     await this.floating.disable();
     if (this.activeView || !this.tabs) return;
     // Nothing can show the chats now. Keep any with work in them visible in
     // the sidebar instead of silently ending them; end the rest.
     if (this.tabs.chats.some(chat => chat.messages.length || chat.hasDraft() || BUSY.includes(chat.state))) await this.openChat();
     else await this.releaseTabs();
+  }
+  // A new launcher starts from the chats' current states, not the next change.
+  enableFloating() {
+    this.floating.enable();
+    this.activity();
   }
   // Ends every agent. Keeps the owner during asynchronous shutdown, preventing
   // a fresh Start from racing the old process groups' exit.
@@ -322,13 +338,15 @@ export default class SirScribblesPlugin extends Plugin {
   async shutdown() {
     this.unloaded = true;
     this.unmount();
-    this.floating?.disable();
     this.lastEditor = null;
-    if (!this.shutdownPending) this.shutdownPending = (async () => {
-      const clean = (await (this.cleanupPending ?? this.tabs?.dispose())) ?? true;
+    // One shared shutdown: agent cleanup starts at once, and the floating
+    // window's teardown runs beside it and is awaited too.
+    if (!this.shutdownPending) this.shutdownPending = (async (teardown, cleanup) => {
+      await teardown;
+      const clean = (await cleanup) ?? true;
       if (!clean) new Notice('Agent cleanup could not be confirmed on unload. Check the CLI process in your terminal.', 0);
       return clean;
-    })();
+    })(this.floating?.disable(), this.cleanupPending ?? this.tabs?.dispose());
     return this.shutdownPending;
   }
   onunload() { void this.shutdown(); }

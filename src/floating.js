@@ -20,6 +20,7 @@ export class FloatingChat {
     this.document = document;
     this.actions = { setIcon, onShow, onHide, onSidebar, onResize, launcherHost };
     this.size = null;
+    this.disabling = null;
     this.host = null;
     this.launcher = null;
     this.window = null;
@@ -74,13 +75,16 @@ export class FloatingChat {
     this.document.body.append(this.window, ...(this.host ? [] : [this.launcher]));
   }
 
-  async disable() {
-    if (!this.enabled) return;
-    await this.hide({ focus: false });
-    this.window.remove();
-    this.launcher.remove();
-    this.host?.remove();
-    this.host = this.launcher = this.window = this.body = null;
+  // Repeated calls share one teardown.
+  disable() {
+    if (!this.disabling && this.enabled) this.disabling = (async () => {
+      await this.hide({ focus: false });
+      this.window.remove();
+      this.launcher.remove();
+      this.host?.remove();
+      this.host = this.launcher = this.window = this.body = null;
+    })().finally(() => { this.disabling = null; });
+    return this.disabling ?? Promise.resolve();
   }
 
   async show() {
