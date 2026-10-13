@@ -23,18 +23,20 @@ export function clampFontSize(value) {
 }
 
 // A custom font is a list of family names separated by commas. Any name a
-// font may have is kept; only control characters and the user's own
-// surrounding quotes go. Whole names that would pass the length limit are
-// dropped, never cut.
+// font may have is kept, joiners in Persian or Indic names included; only
+// control characters, bidirectional controls, the byte order mark and the
+// user's own surrounding quotes go. A name that would pass the length limit
+// is dropped whole, never cut, and shorter fallbacks after it still fit.
 export function cleanFontName(value) {
   if (typeof value !== 'string') return '';
   const names = [];
   let length = 0;
-  for (const part of value.normalize('NFC').replace(/[\p{Cc}\p{Cf}]/gu, ' ').split(',')) {
+  for (const part of value.normalize('NFC').replace(/[\p{Cc}\u202A-\u202E\u2066-\u2069\uFEFF]/gu, ' ').split(',')) {
     const name = part.trim().replace(/^(["'])(.*)\1$/u, '$2').trim().replace(/\s+/g, ' ');
     if (!name) continue;
-    length += (names.length ? 2 : 0) + name.length;
-    if (length > FONT_NAMES_MAX) break;
+    const next = length + (names.length ? 2 : 0) + name.length;
+    if (next > FONT_NAMES_MAX) continue;
+    length = next;
     names.push(name);
   }
   return names.join(', ');
@@ -76,7 +78,7 @@ export function themeFontSize(doc) {
   let probe;
   try {
     probe = doc.createElement('span');
-    probe.style.setProperty('font-size', 'var(--font-ui-small)');
+    probe.style.setProperty('font-size', `var(--font-ui-small, ${FONT_SIZE.theme}px)`);
     probe.style.setProperty('position', 'absolute');
     probe.style.setProperty('visibility', 'hidden');
     doc.body.append(probe);

@@ -56,7 +56,8 @@ function create(t, preferences = {}) {
     setDesc() { return this; }
     control(kind, build) {
       const control = { kind, value: undefined, change: null, input: dom.window.document.createElement('input') };
-      // A slider reports its own setValue as a change, the worst case for callers.
+      // A slider reports its own setValue as a change once onChange is set, the
+      // worst case for the size reset (builders set the value before onChange).
       const api = new Proxy({}, { get: (_, key) => key === 'setValue' ? value => { control.value = value; if (kind === 'slider') control.change?.(value); return api; }
         : key === 'inputEl' ? control.input
         : key === 'onChange' ? fn => { control.change = fn; return api; }
@@ -405,7 +406,7 @@ test("the size slider sits at the theme's resolved size while following the them
   const window = document.defaultView;
   const original = window.getComputedStyle;
   // Themes may write the size in rem; the probe must report resolved pixels.
-  window.getComputedStyle = node => node.style.getPropertyValue('font-size') === 'var(--font-ui-small)' ? { fontSize: '14px' } : original.call(window, node);
+  window.getComputedStyle = node => node.style.getPropertyValue('font-size').startsWith('var(--font-ui-small') ? { fontSize: '14px' } : original.call(window, node);
   t.after(() => { window.getComputedStyle = original; });
   const tab = plugin.settingTab;
   tab.display();
@@ -430,6 +431,59 @@ test('a custom font waiting for a pause is saved on unload, not by a later timer
   stored.set(APPEARANCE_KEY, JSON.stringify({ customFont: 'Newer' }));
   t.mock.timers.tick(400);
   assert.equal(JSON.parse(stored.get(APPEARANCE_KEY)).customFont, 'Newer', 'no timer is left to overwrite a reloaded plugin');
+});
+
+test('changing the chat text size refits the visible prompt and a tab when shown', async t => {
+  const { plugin, leaf } = create(t);
+  await plugin.onload();
+  await leaf.setViewState();
+  const view = leaf.view.contentEl;
+  // jsdom has no layout: the prompt's content height follows the chat size here.
+  const size = () => parseInt(chatSize(view), 10) || 13;
+  const prompts = () => [...view.querySelectorAll('.sir-scribbles-prompt')];
+  const fake = prompt => Object.defineProperty(prompt, 'scrollHeight', { configurable: true, get: () => (prompt.closest('[hidden]') ? 0 : size() * 4) });
+  const height = prompt => prompt.style.getPropertyValue('--sir-scribbles-prompt-height');
+  prompts().forEach(fake);
+  plugin.setAppearance({ fontSize: 20 });
+  assert.equal(height(prompts()[0]), '80px', 'a larger size grows the prompt at once');
+  const first = plugin.tabs.active;
+  plugin.tabs.add();
+  plugin.surface.panel.render();
+  prompts().forEach(fake);
+  plugin.setAppearance({ fontSize: 28 });
+  assert.equal(height(prompts()[1]), '112px');
+  assert.equal(height(prompts()[0]), '80px', 'a hidden tab cannot be measured and keeps its height for now');
+  plugin.tabs.select(first);
+  plugin.surface.panel.render();
+  assert.equal(height(prompts()[0]), '112px', 'showing the tab fits its prompt');
+});
+
+test('the custom font field ignores window switches, input composition and an unloaded plugin', async t => {
+  const { plugin, document } = create(t, { [APPEARANCE_KEY]: JSON.stringify({ font: 'custom', customFont: 'Inter' }) });
+  await plugin.onload();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const tab = plugin.settingTab;
+  tab.display();
+  const text = [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === 'Custom font').controls[0];
+  const Event = document.defaultView.Event;
+  document.body.append(text.input);
+  text.input.focus();
+  text.change('Inter, ');
+  text.input.dispatchEvent(new Event('blur'));
+  assert.equal(plugin.appearance.customFont, 'Inter', 'a window switch keeps the field focused: nothing applies');
+  assert.equal(text.value, 'Inter', 'and the field is not tidied mid-edit');
+  text.input.dispatchEvent(new Event('compositionstart'));
+  text.change('Inter, ふ');
+  t.mock.timers.tick(400);
+  assert.equal(plugin.appearance.customFont, 'Inter', 'a name being composed waits');
+  text.input.dispatchEvent(new Event('compositionend'));
+  text.change('Inter, ふい');
+  t.mock.timers.tick(400);
+  assert.equal(plugin.appearance.customFont, 'Inter, ふい');
+  await plugin.shutdown();
+  text.change('Old tab');
+  t.mock.timers.tick(400);
+  assert.equal(plugin.appearance.customFont, 'Inter, ふい', 'a tab left open after unload writes nothing');
 });
 
 test('unreadable or invalid chat text preferences fall back to the theme', async t => {

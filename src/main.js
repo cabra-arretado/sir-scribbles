@@ -173,7 +173,13 @@ class ScribblesSettings extends PluginSettingTab {
     new Setting(custom).setName('Custom font')
       .setDesc('The name of a font installed on this device, such as Inter or Fira Code. Separate fallbacks with commas.')
       .addText(text => {
+        // A name being composed with an input method is not a name yet.
+        let composing = false;
+        text.inputEl.addEventListener('compositionstart', () => { composing = true; });
+        text.inputEl.addEventListener('compositionend', () => { composing = false; });
         text.setPlaceholder('Inter').setValue(appearance.customFont).onChange(value => {
+          // A tab left open across an unload or reload must not write over the new plugin.
+          if (this.plugin.unloaded || composing) return;
           this.flushFont(false);
           const apply = () => { this.pendingFont = null; this.plugin.setAppearance({ customFont: value }); };
           this.pendingFont = { apply, timer: setTimeout(apply, CUSTOM_FONT_DELAY_MS) };
@@ -181,6 +187,8 @@ class ScribblesSettings extends PluginSettingTab {
         // Leaving the field applies the name and shows it as it was saved.
         // Never while typing: tidying would eat a space before the next word.
         text.inputEl.addEventListener('blur', () => {
+          // Switching to another app blurs the field but keeps it focused here: not leaving it.
+          if (this.plugin.unloaded || text.inputEl.ownerDocument.activeElement === text.inputEl) return;
           this.flushFont();
           text.setValue(this.plugin.appearance.customFont);
         });
@@ -267,6 +275,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.appearance = normalizeAppearance({ ...this.appearance, ...changes });
     writePreferences(this.app, 'appearance', this.appearance);
     applyAppearance(this.surface?.container, this.appearance);
+    this.surface?.panel.refit();
   }
   vaultPath() {
     const adapter = this.app.vault.adapter;

@@ -169,7 +169,10 @@ export class TabbedPanel {
       entry.select.setAttribute('aria-selected', String(active));
       entry.tab.classList.toggle('is-active', active);
       entry.close.disabled = Boolean(chat.closing);
+      // A hidden prompt cannot be measured, so a tab fits its prompt when shown.
+      const shown = active && entry.pane.hidden;
       entry.pane.hidden = !active;
+      if (shown) entry.panel.fitComposer();
     }
     // Re-appending keeps the strip in chat order with the add button last.
     this.strip.append(...this.tabs.chats.map(chat => this.entries.get(chat).tab), this.add);
@@ -182,6 +185,10 @@ export class TabbedPanel {
   renderAll() {
     this.render();
     for (const { panel } of this.entries.values()) panel.render();
+  }
+  // Fit the visible prompt again, for example after the chat text size changed.
+  refit() {
+    for (const { pane, panel } of this.entries.values()) if (!pane.hidden) panel.fitComposer();
   }
   dispose() {
     this.disposed = true;

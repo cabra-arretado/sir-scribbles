@@ -10,6 +10,8 @@ test('custom font names keep every character a real font name may have', () => {
   assert.equal(cleanFontName("M+ 1p, O'Reilly Sans"), "M+ 1p, O'Reilly Sans");
   assert.equal(cleanFontName(' "Fira  Code" , \'Inter\',, '), 'Fira Code, Inter', 'surrounding quotes, spaces and empty names go');
   assert.equal(cleanFontName('Inter\u0000\nBold'), 'Inter Bold', 'control characters become spaces');
+  assert.equal(cleanFontName('ایران\u200Cسنس'), 'ایران\u200Cسنس', 'zero-width joiners stay');
+  assert.equal(cleanFontName('\uFEFF\u202EInter'), 'Inter', 'byte order marks and bidi controls go');
   assert.equal(cleanFontName(42), '');
 });
 
@@ -17,6 +19,7 @@ test('custom font names are dropped whole at the length limit, never cut', () =>
   const long = 'A'.repeat(197);
   assert.equal(cleanFontName(`${long}, Bcd`), long);
   assert.equal(cleanFontName(`Inter, ${'B'.repeat(250)}`), 'Inter');
+  assert.equal(cleanFontName(`Inter, ${'B'.repeat(250)}, Arial`), 'Inter, Arial', 'shorter fallbacks after a long name are kept');
   assert.equal(cleanFontName('C'.repeat(201)), '');
 });
 

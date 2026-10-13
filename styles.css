@@ -110,7 +110,8 @@
 .sir-scribbles-markdown a { color: var(--link-color, var(--text-accent)); }
 /* A link that cannot open (outside the vault, unsupported scheme) reads as text. */
 .sir-scribbles-markdown a:not([href]) { color: inherit; }
-.sir-scribbles-link-host { color: var(--text-faint); font-size: .923em; }
+/* Against the chat size, not em, so it stays the same inside a table cell or heading. */
+.sir-scribbles-link-host { color: var(--text-faint); font-size: calc(var(--sir-scribbles-chat-font-size, var(--font-ui-small)) * .923); }
 .sir-scribbles .sir-scribbles-more { align-self: flex-start; margin-top: var(--size-4-2); }
 
 /* While a reply streams: a soft dot trails the text (or stands alone before
