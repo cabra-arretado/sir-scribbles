@@ -5,6 +5,7 @@ import { captureSelection, captureFile } from './draft.js';
 import { validateExecutable } from './process.js';
 import { statusBarInset } from './layout.js';
 import { FloatingChat, OPACITY, clampOpacity } from './floating.js';
+import { FONTS, FONT_SIZE, DEFAULT_APPEARANCE, normalizeAppearance, applyAppearance } from './appearance.js';
 
 const VIEW_TYPE = 'sir-scribbles';
 // States in which a chat has an agent doing something for the user.
@@ -44,6 +45,22 @@ function loadFloating(app) {
 }
 function storeFloating(app, preferences) {
   const key = floatingKey(app);
+  try { if (key) globalThis.localStorage.setItem(key, JSON.stringify(preferences)); }
+  catch { /* Preferences are a convenience; the setting still applies for this session. */ }
+}
+
+// Chat text preferences are per device as well.
+function appearanceKey(app) {
+  const adapter = app.vault.adapter;
+  return adapter instanceof FileSystemAdapter ? `sir-scribbles:appearance:${adapter.getBasePath()}` : null;
+}
+function loadAppearance(app) {
+  const key = appearanceKey(app);
+  try { return normalizeAppearance(JSON.parse((key && globalThis.localStorage?.getItem(key)) || '{}')); }
+  catch { return { ...DEFAULT_APPEARANCE }; }
+}
+function storeAppearance(app, preferences) {
+  const key = appearanceKey(app);
   try { if (key) globalThis.localStorage.setItem(key, JSON.stringify(preferences)); }
   catch { /* Preferences are a convenience; the setting still applies for this session. */ }
 }
@@ -141,6 +158,39 @@ class ScribblesSettings extends PluginSettingTab {
       .setDesc('The rest of the time, so your notes show through.')
       .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.opacity)
         .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ opacity: value }); }));
+    this.displayAppearance();
+  }
+  displayAppearance() {
+    const appearance = this.plugin.appearance;
+    new Setting(this.containerEl).setName('Chat text').setHeading();
+    let custom;
+    new Setting(this.containerEl).setName('Font')
+      .setDesc('The font for messages and the prompt, in the sidebar and the floating chat.')
+      .addDropdown(dropdown => {
+        for (const [value, { label }] of Object.entries(FONTS)) dropdown.addOption(value, label);
+        dropdown.setValue(appearance.font).onChange(value => {
+          custom.hidden = value !== 'custom';
+          this.plugin.setAppearance({ font: value });
+        });
+      });
+    custom = this.containerEl.createEl('div', { cls: 'sir-scribbles-subsettings' });
+    custom.hidden = appearance.font !== 'custom';
+    new Setting(custom).setName('Custom font')
+      .setDesc('A font installed on this device, such as Inter or "Fira Code". Separate fallbacks with commas.')
+      .addText(text => text.setPlaceholder('Inter').setValue(appearance.customFont)
+        .onChange(value => { this.plugin.setAppearance({ customFont: value }); }));
+    let slider;
+    new Setting(this.containerEl).setName('Text size')
+      .setDesc(`In pixels, from ${FONT_SIZE.min} to ${FONT_SIZE.max}. Reset to follow the theme.`)
+      .addSlider(control => {
+        slider = control;
+        control.setLimits(FONT_SIZE.min, FONT_SIZE.max, FONT_SIZE.step).setValue(appearance.fontSize ?? 13)
+          .setDynamicTooltip().onChange(value => { this.plugin.setAppearance({ fontSize: value }); });
+      })
+      .addExtraButton(button => button.setIcon('rotate-ccw').setTooltip('Follow the theme').onClick(() => {
+        this.plugin.setAppearance({ fontSize: null });
+        slider?.setValue(13);
+      }));
   }
 }
 
@@ -156,6 +206,8 @@ export default class SirScribblesPlugin extends Plugin {
     this.surface = null;
     this.activity = () => this.floating.setActivity(this.tabs?.chats.map(chat => chat.state) ?? []);
     this.floatingPreferences = loadFloating(this.app);
+    this.appearance = loadAppearance(this.app);
+    applyAppearance(this.appearanceTarget(), this.appearance);
     this.floating = new FloatingChat(this.app.workspace.containerEl?.ownerDocument ?? globalThis.document, {
       setIcon,
       onShow: body => this.showFloating(body),
@@ -193,6 +245,12 @@ export default class SirScribblesPlugin extends Plugin {
     storePath(this.app, path);
     this.executablePath = path;
     this.surface?.panel.renderAll();
+  }
+  appearanceTarget() { return (this.app.workspace.containerEl?.ownerDocument ?? globalThis.document)?.body; }
+  setAppearance(changes) {
+    this.appearance = normalizeAppearance({ ...this.appearance, ...changes });
+    storeAppearance(this.app, this.appearance);
+    applyAppearance(this.appearanceTarget(), this.appearance);
   }
   vaultPath() {
     const adapter = this.app.vault.adapter;
@@ -337,6 +395,7 @@ export default class SirScribblesPlugin extends Plugin {
   }
   async shutdown() {
     this.unloaded = true;
+    applyAppearance(this.appearanceTarget(), DEFAULT_APPEARANCE);
     this.unmount();
     this.lastEditor = null;
     // One shared shutdown: agent cleanup starts at once, and the floating

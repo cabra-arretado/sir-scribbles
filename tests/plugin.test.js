@@ -66,6 +66,9 @@ function create(t, preferences = {}) {
     addButton(build) { return this.control('button', build); }
     addToggle(build) { return this.control('toggle', build); }
     addSlider(build) { return this.control('slider', build); }
+    addDropdown(build) { return this.control('dropdown', build); }
+    addExtraButton(build) { return this.control('extra', build); }
+    setHeading() { return this; }
   }
   class Notice {}
   const getLinkpath = link => link.split('#')[0];
@@ -312,6 +315,32 @@ test('opacity settings are grouped under Floating chat and shown only while it i
   await plugin.setFloating({ enabled: true });
   tab.display();
   assert.equal(tab.containerEl.querySelector('.sir-scribbles-subsettings').hidden, false, 'reopening the tab shows the group when on');
+});
+
+test('chat font and size settings apply to the document and persist per device', async t => {
+  const { plugin, document, stored } = create(t, { 'sir-scribbles:appearance:/fixture-vault': JSON.stringify({ font: 'monospace', fontSize: 99 }) });
+  await plugin.onload();
+  const style = document.body.style;
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font'), 'var(--font-monospace)');
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '28px', 'stored sizes are clamped');
+  const tab = plugin.settingTab;
+  tab.display();
+  const item = name => [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === name);
+  const custom = item('Custom font').parentElement;
+  assert.equal(custom.hidden, true, 'custom field hidden unless Custom is chosen');
+  item('Font').controls[0].change('custom');
+  assert.equal(custom.hidden, false);
+  item('Custom font').controls[0].change('"Fira Code"; color: red');
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font'), '"Fira Code" color: red, var(--font-interface)', 'a custom font cannot add declarations');
+  item('Text size').controls[0].change(16);
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '16px');
+  assert.deepEqual(JSON.parse(stored.get('sir-scribbles:appearance:/fixture-vault')).fontSize, 16);
+  plugin.setAppearance({ font: 'interface', fontSize: null });
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font'), '', 'the theme default leaves no override');
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '');
+  plugin.setAppearance({ font: 'text', fontSize: 18 });
+  await plugin.shutdown();
+  assert.equal(style.getPropertyValue('--sir-scribbles-chat-font-size'), '', 'unloading removes the overrides');
 });
 
 test('turning floating off keeps chats with work and shows them in the sidebar', async t => {
