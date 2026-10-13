@@ -387,3 +387,43 @@ test('turning floating off and straight back on leaves the launcher on', async t
   await Promise.all([off, on]);
   assert.equal(plugin.floating.enabled, true);
 });
+
+// Cleanup that is still running when the window is hidden, settled by the test.
+function deferCleanup(plugin) {
+  let settle;
+  plugin.cleanupPending = new Promise(resolve => { settle = resolve; });
+  return () => { plugin.cleanupPending = null; settle(true); };
+}
+
+test('a hide waiting for cleanup never clears a window reopened meanwhile', async t => {
+  const { plugin, leaf } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  await plugin.floating.show();
+  const settle = deferCleanup(plugin);
+  const hiding = plugin.floating.hide();
+  const showing = plugin.floating.show();
+  assert.equal(plugin.floating.open, true);
+  settle();
+  await Promise.all([hiding, showing]);
+  assert.equal(plugin.floating.open, true);
+  assert.equal(plugin.surface.container, plugin.floating.body, 'the newer show owns the chats');
+  assert.ok(plugin.floating.body.querySelector('textarea'), 'its composer is still there');
+  assert.equal(plugin.floating.window.classList.contains('is-loading'), false);
+  assert.ok(leaf.view.contentEl.querySelector('.sir-scribbles-elsewhere'), 'the sidebar still points at the window');
+});
+
+test('disabling while a hide waits for cleanup never rejects and returns the chats to the sidebar', async t => {
+  const { plugin, leaf, document } = create(t, FLOATING);
+  await plugin.onload();
+  await leaf.setViewState();
+  await plugin.floating.show();
+  const settle = deferCleanup(plugin);
+  const hiding = plugin.floating.hide();
+  const disabling = plugin.setFloating({ enabled: false });
+  settle();
+  await Promise.all([hiding, disabling]);
+  assert.equal(plugin.floating.enabled, false);
+  assert.equal(document.querySelector('.sir-scribbles-floating'), null);
+  assert.equal(plugin.surface.container, leaf.view.contentEl);
+});

@@ -20,6 +20,7 @@ export class FloatingChat {
     this.document = document;
     this.actions = { setIcon, onShow, onHide, onSidebar, onResize, launcherHost };
     this.size = null;
+    this.transition = 0;
     this.disabling = null;
     this.host = null;
     this.launcher = null;
@@ -87,29 +88,39 @@ export class FloatingChat {
     return this.disabling ?? Promise.resolve();
   }
 
+  // Each show or hide is a transition. The plugin's part of one may wait for
+  // agent cleanup, so whatever finishes late checks it is still the latest
+  // transition and touches only the nodes it started with.
   async show() {
     if (!this.enabled || this.open) return;
+    const transition = ++this.transition;
+    const { window: frame, body } = this;
     // Open but invisible until the chats are mounted, so no empty frame shows.
-    this.window.hidden = false;
-    this.window.classList.add('is-loading');
+    frame.hidden = false;
+    frame.classList.add('is-loading');
     this.launcher.setAttribute('aria-expanded', 'true');
     this.launcher.setAttribute('aria-label', 'Hide floating chat');
-    await this.actions.onShow?.(this.body);
-    if (!this.open) return;
-    this.window.classList.remove('is-loading');
+    await this.actions.onShow?.(body);
+    if (transition !== this.transition || frame !== this.window || !this.open) return;
+    frame.classList.remove('is-loading');
     // Inactive tabs are hidden; focus the composer of the one on screen.
-    this.window.querySelector('[role="tabpanel"]:not([hidden]) textarea')?.focus();
+    frame.querySelector('[role="tabpanel"]:not([hidden]) textarea')?.focus();
   }
 
+  // The window's own DOM changes happen at once; only the plugin's part (moving
+  // the chats back, perhaps after cleanup) is awaited.
   async hide({ focus = true } = {}) {
     if (!this.open) return;
-    this.window.hidden = true;
-    this.window.classList.remove('is-loading');
-    this.launcher.setAttribute('aria-expanded', 'false');
-    this.launcher.setAttribute('aria-label', 'Show floating chat');
-    await this.actions.onHide?.(this.body);
-    this.body.replaceChildren();
-    if (focus) this.launcher.focus();
+    ++this.transition;
+    const { window: frame, body, launcher } = this;
+    frame.hidden = true;
+    frame.classList.remove('is-loading');
+    launcher.setAttribute('aria-expanded', 'false');
+    launcher.setAttribute('aria-label', 'Show floating chat');
+    const moving = this.actions.onHide?.(body);
+    body.replaceChildren();
+    if (focus) launcher.focus();
+    await moving;
   }
 
   toggle() { return this.open ? this.hide() : this.show(); }

@@ -223,3 +223,27 @@ test('disabling twice shares one teardown', async t => {
   assert.equal(document.body.children.length, 0);
   await floating.disable();
 });
+
+test('a late hide or show only finishes its own transition', async t => {
+  const pending = [];
+  const { floating, document } = create(t, {
+    onShow: body => new Promise(resolve => pending.push(() => { body.append(document.createElement('textarea')); resolve(); })),
+    onHide: () => new Promise(resolve => pending.push(resolve)),
+  });
+  floating.enable();
+  const firstShow = floating.show();
+  const hiding = floating.hide();
+  const secondShow = floating.show();
+  assert.equal(floating.body.children.length, 0, 'hiding cleared the window at once');
+  for (const finish of pending) finish();
+  await Promise.all([firstShow, hiding, secondShow]);
+  assert.equal(floating.open, true);
+  assert.equal(floating.window.classList.contains('is-loading'), false);
+  // Disabling while a hide is pending: nothing late touches removed nodes.
+  const hideAgain = floating.hide();
+  const disabling = floating.disable();
+  pending.at(-1)?.();
+  for (const finish of pending) finish();
+  await Promise.all([hideAgain, disabling]);
+  assert.equal(document.body.children.length, 0);
+});
