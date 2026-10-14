@@ -5,7 +5,8 @@ import { ChatController } from '../src/chat.js';
 import { ChatPanel } from '../src/panel.js';
 import { composePrompt } from '../src/draft.js';
 
-function create(t, { frames = false, approvalDelay = 0 } = {}) {
+function create(t, { frames = false, approvalDelay = 0, slashCommands = false } = {}) {
+  const setting = { on: slashCommands };
   const dom = new JSDOM('<main></main>', { url: 'https://fixture.test' });
   // Controlled animation frames: `frame()` runs the pending callbacks once.
   const pending = new Map();
@@ -31,10 +32,11 @@ function create(t, { frames = false, approvalDelay = 0 } = {}) {
     attachFile: async () => Object.freeze({ kind: 'file', path: 'whole.md' }),
     confirmReset: async () => true,
     copyText: async text => { copied = text; },
+    slashCommands: () => setting.on,
     approvalDelay,
   });
   t.after(() => { panel.dispose(); dom.window.close(); });
-  return { dom, model, root, panel, frame, pending, attached: () => attached, copied: () => copied };
+  return { dom, model, root, panel, frame, pending, setting, attached: () => attached, copied: () => copied };
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 50));
 // Buttons are named by their text: visible without icons, hidden with them.
@@ -785,4 +787,183 @@ test('areas carry no tooltip; buttons and links keep theirs', t => {
   assert.equal(panel.attachUpload.getAttribute('aria-label'), 'Attach images or text files');
   assert.equal(root.querySelector('.sir-scribbles-agent a').title, 'https://evil.test/');
   assert.equal(root.querySelector('.sir-scribbles-attachment').title, 'a.png · 1 B');
+});
+
+const COMMANDS = [
+  { name: 'context', description: 'Manage context files', hint: 'add <path>' },
+  { name: 'compact', description: 'Compact the conversation' },
+  { name: 'tools', description: '<b>List</b> tools' },
+];
+const type = (panel, dom, text) => {
+  panel.composer.value = text;
+  panel.composer.dispatchEvent(new dom.window.Event('input'));
+};
+const key = (panel, dom, name, init = {}) => panel.composer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: name, cancelable: true, ...init }));
+const menuNames = root => [...root.querySelectorAll('.sir-scribbles-command-name')].map(node => node.textContent);
+
+test('slash commands stay hidden while the experimental setting is off', t => {
+  const { model, panel, dom, root } = create(t);
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  assert.equal(panel.commandMenu.hidden, true);
+  assert.equal(panel.composer.getAttribute('aria-controls'), null);
+});
+
+test('typing / lists the agent\'s commands, filtered, as inert text', t => {
+  const { model, panel, dom, root } = create(t, { slashCommands: true });
+  type(panel, dom, '/');
+  assert.equal(panel.commandMenu.hidden, true); // None advertised yet.
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  assert.equal(panel.commandMenu.hidden, false);
+  // The prompt stays a text box that points at the open list, which is named
+  // by hidden text rather than a tooltip.
+  assert.equal(panel.composer.getAttribute('role'), null);
+  assert.equal(panel.composer.getAttribute('aria-controls'), panel.commandMenu.id);
+  assert.equal(panel.commandMenu.getAttribute('aria-label'), null);
+  assert.equal(root.querySelector(`#${panel.commandMenu.getAttribute('aria-labelledby')}`).textContent, 'Slash commands');
+  assert.deepEqual(menuNames(root), ['/context add <path>', '/compact', '/tools']);
+  assert.equal(root.querySelector('.sir-scribbles-commands b'), null);
+  type(panel, dom, '/CO');
+  assert.deepEqual(menuNames(root), ['/context add <path>', '/compact']);
+  type(panel, dom, '/ol'); // Contains, after any that start with it.
+  assert.deepEqual(menuNames(root), ['/tools']);
+  type(panel, dom, '/context ');
+  assert.equal(panel.commandMenu.hidden, true);
+  type(panel, dom, 'say /co');
+  assert.equal(panel.commandMenu.hidden, true);
+});
+
+test('arrows, Enter and Tab pick a command into the prompt without sending', t => {
+  const { model, panel, dom, root } = create(t, { slashCommands: true });
+  let sent = 0;
+  model.send = () => { sent++; };
+  model.state = 'ready';
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  key(panel, dom, 'ArrowDown');
+  assert.equal(root.querySelector('.is-selected .sir-scribbles-command-name').textContent, '/compact');
+  assert.equal(panel.composer.getAttribute('aria-activedescendant'), root.querySelector('.is-selected').id);
+  key(panel, dom, 'ArrowUp');
+  key(panel, dom, 'ArrowUp'); // Wraps to the last.
+  assert.equal(root.querySelector('.is-selected .sir-scribbles-command-name').textContent, '/tools');
+  key(panel, dom, 'Enter');
+  assert.equal(sent, 0);
+  assert.equal(model.draft, '/tools ');
+  assert.equal(panel.commandMenu.hidden, true);
+  key(panel, dom, 'Enter'); // Now it sends as a prompt.
+  assert.equal(sent, 1);
+  type(panel, dom, '/con');
+  key(panel, dom, 'Tab');
+  assert.equal(model.draft, '/context ');
+});
+
+test('Escape closes the menu for that text only; clicking an entry picks it', t => {
+  const { model, panel, dom, root } = create(t, { slashCommands: true });
+  model.commands = COMMANDS;
+  type(panel, dom, '/c');
+  const escape = new dom.window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+  panel.composer.dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented, true); // The floating window stays open.
+  assert.equal(panel.commandMenu.hidden, true);
+  model.changed();
+  panel.render();
+  assert.equal(panel.commandMenu.hidden, true);
+  type(panel, dom, '/co');
+  assert.equal(panel.commandMenu.hidden, false);
+  const compact = [...root.querySelectorAll('.sir-scribbles-command')].find(item => item.textContent.startsWith('/compact'));
+  compact.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(model.draft, '/compact ');
+});
+
+test('the command menu keeps its entries across renders, so a click mid-stream still picks', t => {
+  const { model, panel, dom, root } = create(t, { slashCommands: true });
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  const item = root.querySelectorAll('.sir-scribbles-command')[1];
+  item.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+  panel.render(); // A streamed reply re-renders between press and release.
+  assert.equal(root.querySelectorAll('.sir-scribbles-command')[1], item, 'unchanged lists keep their entries');
+  model.commands = COMMANDS.map(command => ({ ...command })); // The agent resends the same list.
+  panel.render();
+  assert.equal(root.querySelectorAll('.sir-scribbles-command')[1], item, 'an identical list keeps its entries');
+  model.commands = [{ name: 'help', description: 'Help' }, ...COMMANDS];
+  panel.render();
+  assert.equal(item.isConnected, false);
+  const rebuilt = root.querySelectorAll('.sir-scribbles-command')[1];
+  item.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(model.draft, '/', 'an entry detached by a rebuild does nothing');
+  rebuilt.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(model.draft, '/context ');
+});
+
+test('a new list from the agent keeps the highlighted command, wherever it moved', t => {
+  const { model, panel, dom, root } = create(t, { slashCommands: true });
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  key(panel, dom, 'ArrowDown');
+  key(panel, dom, 'ArrowDown');
+  assert.equal(root.querySelector('.is-selected .sir-scribbles-command-name').textContent, '/tools');
+  model.commands = [COMMANDS[2], COMMANDS[0]];
+  panel.render();
+  assert.equal(root.querySelector('.is-selected .sir-scribbles-command-name').textContent, '/tools');
+  assert.equal(panel.composer.getAttribute('aria-activedescendant'), root.querySelector('.is-selected').id);
+  model.commands = [COMMANDS[0]];
+  panel.render();
+  assert.equal(root.querySelector('.is-selected .sir-scribbles-command-name').textContent, '/context add <path>');
+});
+
+test('typing to filter highlights the best match, not the previous top entry', t => {
+  const { model, panel, dom, root } = create(t, { slashCommands: true });
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  type(panel, dom, '/t');
+  assert.deepEqual(menuNames(root), ['/tools', '/context add <path>', '/compact']);
+  assert.equal(root.querySelector('.is-selected .sir-scribbles-command-name').textContent, '/tools');
+  key(panel, dom, 'Enter');
+  assert.equal(model.draft, '/tools ');
+});
+
+test('the command menu closes while the prompt is not focused and reopens on return', t => {
+  const { model, panel, dom } = create(t, { slashCommands: true });
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  panel.composer.dispatchEvent(new dom.window.FocusEvent('blur'));
+  assert.equal(panel.commandMenu.hidden, true);
+  assert.equal(panel.composer.getAttribute('aria-activedescendant'), null);
+  panel.render();
+  assert.equal(panel.commandMenu.hidden, true, 'a render while away keeps it closed');
+  panel.composer.dispatchEvent(new dom.window.FocusEvent('focus'));
+  assert.equal(panel.commandMenu.hidden, false);
+});
+
+test('composition and modifier keys pass through the open command menu', t => {
+  const { model, panel, dom } = create(t, { slashCommands: true });
+  let sent = 0;
+  model.send = () => { sent++; };
+  model.state = 'ready';
+  model.commands = COMMANDS;
+  type(panel, dom, '/co');
+  key(panel, dom, 'Enter', { isComposing: true });
+  key(panel, dom, 'Escape', { keyCode: 229 });
+  assert.equal(model.draft, '/co');
+  assert.equal(panel.commandMenu.hidden, false, 'Escape during composition only cancels the composition');
+  const tab = new dom.window.KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true, cancelable: true });
+  panel.composer.dispatchEvent(tab);
+  assert.equal(tab.defaultPrevented, false);
+  key(panel, dom, 'Enter', { metaKey: true });
+  assert.equal(sent, 1, 'a modified Enter sends as usual');
+  assert.equal(model.draft, '/co');
+});
+
+test('turning the setting off closes an open command menu', t => {
+  const { model, panel, dom, setting } = create(t, { slashCommands: true });
+  model.commands = COMMANDS;
+  type(panel, dom, '/');
+  assert.equal(panel.commandMenu.hidden, false);
+  setting.on = false;
+  panel.render();
+  assert.equal(panel.commandMenu.hidden, true);
+  assert.equal(panel.composer.getAttribute('aria-controls'), null);
+  assert.equal(panel.composer.getAttribute('aria-activedescendant'), null);
 });

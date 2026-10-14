@@ -67,6 +67,7 @@ export class ChatController extends EventEmitter {
     this.composerEpoch = 0;
     this.identity = '';
     this.configOptions = [];
+    this.commands = []; // Slash commands the agent advertised for this chat.
     this.configPending = false;
     this.error = '';
     this.cleanup = '';
@@ -157,6 +158,9 @@ export class ChatController extends EventEmitter {
       session.on('update', update => { if (live()) this.update(update); });
       session.on('config-options', options => {
         if (live()) { this.configOptions = options; this.changed(); }
+      });
+      session.on('commands', commands => {
+        if (live()) { this.commands = commands; this.changed(); }
       });
       for (const event of ['permission', 'permission-settled', 'permissions-cancelled']) {
         session.on(event, () => { if (live()) this.changed(); });
@@ -429,6 +433,7 @@ export class ChatController extends EventEmitter {
     if (!keepComposer) this.clearComposer();
     this.identity = '';
     this.configOptions = [];
+    this.commands = [];
     this.configPending = false;
     this.error = '';
     this.cleanup = '';

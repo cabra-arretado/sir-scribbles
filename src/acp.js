@@ -44,6 +44,24 @@ export function sanitizeConfigOptions(input, limits = LIMITS) {
   return options;
 }
 
+// Commands the agent says can be run by typing "/name" in a prompt. Names
+// are single words without the slash, and without control or invisible
+// formatting characters that could disguise them; anything else is dropped.
+export function sanitizeCommands(input, limits = LIMITS) {
+  if (!Array.isArray(input)) return [];
+  const commands = [];
+  for (const entry of input) {
+    if (commands.length >= limits.commands) break;
+    if (!isRecord(entry) || !label(entry.name, 64)) continue;
+    const name = entry.name.replace(/^\//, '');
+    if (!/^[^\s/\p{Cc}\p{Cf}]+$/u.test(name) || commands.some(command => command.name === name)) continue;
+    const command = { name, description: label(entry.description) ? entry.description : '' };
+    if (isRecord(entry.input) && label(entry.input.hint, 256)) command.hint = entry.input.hint;
+    commands.push(command);
+  }
+  return commands;
+}
+
 // Allocate one bounded buffer, not an unbounded string or chunk list.
 // Scan byte boundaries before parsing and reject malformed UTF-8.
 export class FrameReader {
@@ -105,6 +123,7 @@ export class AcpSession extends EventEmitter {
     this.sessionId = null;
     this.cwd = null;
     this.configOptions = [];
+    this.commands = [];
     // Ordering for option lists: each change request and each agent update
     // takes the next number; configStamp is the number behind the shown list.
     this.configSeq = 0;
@@ -227,6 +246,11 @@ export class AcpSession extends EventEmitter {
   deliver(update) {
     if (update.sessionUpdate === 'config_option_update') {
       this.setConfigOptions(update.configOptions);
+      return;
+    }
+    if (update.sessionUpdate === 'available_commands_update') {
+      this.commands = sanitizeCommands(update.availableCommands, this.limits);
+      this.emit('commands', this.commands);
       return;
     }
     this.rememberToolCall(update);
