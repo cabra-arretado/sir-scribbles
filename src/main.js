@@ -50,6 +50,10 @@ function loadFloating(app) {
     return { enabled: value?.enabled === true, opacity: clampOpacity(value?.opacity), activeOpacity: clampOpacity(value?.activeOpacity, OPACITY.active), size };
   } catch { return { enabled: false, opacity: OPACITY.initial, activeOpacity: OPACITY.active, size: null }; }
 }
+function loadExperimental(app) {
+  try { return { slashCommands: readPreferences(app, 'experimental')?.slashCommands === true }; }
+  catch { return { slashCommands: false }; }
+}
 function loadAppearance(app) {
   try { return normalizeAppearance(readPreferences(app, 'appearance')); }
   catch { return { ...DEFAULT_APPEARANCE }; }
@@ -156,6 +160,14 @@ class ScribblesSettings extends PluginSettingTab {
       .addSlider(slider => slider.setLimits(OPACITY.min, OPACITY.max, OPACITY.step).setValue(this.plugin.floatingPreferences.opacity)
         .setDynamicTooltip().onChange(async value => { await this.plugin.setFloating({ opacity: value }); }));
     this.displayAppearance();
+    this.displayExperimental();
+  }
+  displayExperimental() {
+    new Setting(this.containerEl).setName('Experimental').setHeading();
+    new Setting(this.containerEl).setName('Slash commands')
+      .setDesc('Typing / at the start of a prompt lists the commands the agent offers for that chat. Choosing one puts it in the prompt; sending it runs it. Which commands appear, and what they do, is up to the agent.')
+      .addToggle(toggle => toggle.setValue(this.plugin.experimental.slashCommands)
+        .onChange(value => { this.plugin.setExperimental({ slashCommands: value }); }));
   }
   displayAppearance() {
     const appearance = this.plugin.appearance;
@@ -239,6 +251,7 @@ export default class SirScribblesPlugin extends Plugin {
     this.activity = () => this.floating.setActivity(this.tabs?.chats.map(chat => chat.state) ?? []);
     this.floatingPreferences = loadFloating(this.app);
     this.appearance = loadAppearance(this.app);
+    this.experimental = loadExperimental(this.app);
     this.floating = new FloatingChat(this.app.workspace.containerEl?.ownerDocument ?? globalThis.document, {
       setIcon,
       onShow: body => this.showFloating(body),
@@ -286,6 +299,12 @@ export default class SirScribblesPlugin extends Plugin {
     applyAppearance(this.surface?.container, this.appearance);
     this.surface?.panel.refit();
   }
+  setExperimental(changes) {
+    if (this.unloaded) return;
+    this.experimental = { ...this.experimental, ...changes };
+    writePreferences(this.app, 'experimental', this.experimental);
+    this.surface?.panel.renderAll();
+  }
   vaultPath() {
     const adapter = this.app.vault.adapter;
     return adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null;
@@ -327,6 +346,7 @@ export default class SirScribblesPlugin extends Plugin {
     return {
       setIcon,
       getPath: () => this.executablePath,
+      slashCommands: () => this.experimental.slashCommands,
       savePath: async path => { await validateExecutable(path); await this.savePath(path); },
       attachSelection: () => captureSelection(this.lastEditor, isEditor),
       attachFile: () => captureFile(this.lastEditor, isEditor),

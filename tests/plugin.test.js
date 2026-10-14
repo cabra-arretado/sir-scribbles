@@ -657,3 +657,26 @@ test('the launcher cannot reopen a window that is being disabled', async t => {
   assert.ok(leaf.view.contentEl.querySelector('textarea'), 'with a composer');
   assert.equal(leaf.view.contentEl.querySelector('.sir-scribbles-elsewhere'), null);
 });
+
+test('slash commands are off by default; the experimental switch reaches open chats and persists', async t => {
+  const KEY = 'sir-scribbles:experimental:/fixture-vault';
+  const { plugin, leaf, stored } = create(t, { [KEY]: '{bad json' });
+  await plugin.onload();
+  assert.equal(plugin.experimental.slashCommands, false, 'unreadable preferences fall back to off');
+  await leaf.setViewState();
+  const chat = plugin.tabs.active;
+  chat.commands = [{ name: 'help', description: 'Help' }];
+  const prompt = leaf.view.contentEl.querySelector('.sir-scribbles-prompt');
+  const menu = leaf.view.contentEl.querySelector('.sir-scribbles-commands');
+  const type = text => { prompt.value = text; prompt.dispatchEvent(new prompt.ownerDocument.defaultView.Event('input')); };
+  type('/');
+  assert.equal(menu.hidden, true);
+  const tab = plugin.settingTab;
+  tab.display();
+  const item = [...tab.containerEl.querySelectorAll('.setting-item')].find(node => node.dataset.name === 'Slash commands');
+  item.controls[0].change(true);
+  assert.equal(JSON.parse(stored.get(KEY)).slashCommands, true);
+  assert.equal(menu.hidden, false, 'an open chat shows the menu at once');
+  item.controls[0].change(false);
+  assert.equal(menu.hidden, true);
+});

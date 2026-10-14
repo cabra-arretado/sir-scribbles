@@ -12,6 +12,7 @@ export const LIMITS = Object.freeze({
   permissions: 16,
   configOptions: 32,
   configValues: 256,
+  commands: 64,
   chats: 5,
   historyEntries: 100,
   historyPages: 5,
