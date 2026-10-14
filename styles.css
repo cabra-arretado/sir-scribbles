@@ -194,6 +194,21 @@
 /* Composer: one field with context on top and actions underneath. */
 /* The bottom inset clears Obsidian's status bar where it overlaps the sidebar. */
 .sir-scribbles-footer { flex-shrink: 0; padding: 0 var(--size-4-3) calc(var(--size-4-3) + var(--sir-scribbles-status-bar-inset, 0px)); }
+.sir-scribbles-activity {
+  display: flex; align-items: center; gap: var(--size-4-3); min-height: 36px;
+  margin-bottom: var(--size-4-2); padding: var(--size-4-2) var(--size-4-3);
+  border-left: 3px solid var(--interactive-accent); border-radius: var(--radius-s);
+  background: var(--background-secondary); color: var(--text-normal);
+  font-size: var(--font-ui-small); font-weight: var(--font-semibold);
+}
+.sir-scribbles-activity-dots { display: inline-flex; align-items: center; gap: 4px; color: var(--text-accent); }
+.sir-scribbles-activity-dots > span {
+  width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  animation: sir-scribbles-pulse 1.2s ease-in-out infinite;
+}
+.sir-scribbles-activity-dots > span:nth-child(2) { animation-delay: .2s; }
+.sir-scribbles-activity-dots > span:nth-child(3) { animation-delay: .4s; }
+@media (prefers-reduced-motion: reduce) { .sir-scribbles-activity-dots > span { animation: none; } }
 .sir-scribbles-composer {
   display: flex; flex-direction: column; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l);
   background: var(--background-modifier-form-field); transition: border-color .12s ease, box-shadow .12s ease;

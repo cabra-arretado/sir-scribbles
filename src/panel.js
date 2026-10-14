@@ -151,6 +151,16 @@ export class ChatPanel {
     this.container.append(this.permissionArea);
 
     const footer = this.el('footer', 'sir-scribbles-footer');
+    // Keep activity beside the composer, visible even when reading older turns.
+    this.activity = this.el('div', 'sir-scribbles-activity');
+    this.activity.hidden = true;
+    this.activity.setAttribute('role', 'status');
+    this.activity.setAttribute('aria-atomic', 'true');
+    const dots = this.el('span', 'sir-scribbles-activity-dots');
+    dots.setAttribute('aria-hidden', 'true');
+    dots.append(this.el('span'), this.el('span'), this.el('span'));
+    this.activityLabel = this.el('span');
+    this.activity.append(dots, this.activityLabel);
     this.selectionArea = this.el('section', 'sir-scribbles-selection');
     const composer = this.el('div', 'sir-scribbles-composer');
     this.composer = this.el('textarea', 'sir-scribbles-prompt');
@@ -205,7 +215,7 @@ export class ChatPanel {
       this.labelFor(this.effortPicker, 'Effort'), this.effortPicker, this.force, this.stop, this.send);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
     composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
-    footer.append(composer);
+    footer.append(this.activity, composer);
     this.container.append(footer);
   }
 
@@ -357,6 +367,7 @@ export class ChatPanel {
     this.empty.hidden = model.messages.length > 0 || model.loading;
     if (this.composer.value !== model.draft) { this.composer.value = model.draft; this.fitComposer(); }
     this.renderControls();
+    this.renderActivity();
     this.renderMessages();
     this.renderSelection();
     this.renderAttachments();
@@ -364,6 +375,20 @@ export class ChatPanel {
     this.renderPicker(this.modelPicker, this.model.modelOption());
     this.renderPicker(this.effortPicker, this.model.effortOption());
     this.renderHistory();
+  }
+
+  renderActivity() {
+    const active = this.model.state === 'working' && !this.model.loading;
+    this.activity.hidden = !active;
+    const last = this.model.messages.at(-1);
+    let label = '';
+    if (active) {
+      if (last?.role === 'agent' && last.text) label = 'Responding…';
+      else if (last?.role === 'tool' && ['pending', 'in_progress'].includes(last.data?.status)) label = 'Using tools…';
+      else label = 'Thinking…';
+    }
+    // Avoid repeating live-region announcements on every streamed chunk.
+    if (this.activityLabel.textContent !== label) this.activityLabel.textContent = label;
   }
 
   // Past chats for this vault, listed after Past chats. New chat never lists them.
