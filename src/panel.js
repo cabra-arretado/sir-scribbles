@@ -498,9 +498,17 @@ export class ChatPanel {
     const last = this.model.messages.at(-1);
     let label = '';
     if (active) {
-      if (last?.role === 'agent' && last.text) label = 'Responding…';
-      else if (last?.role === 'tool' && ['pending', 'in_progress'].includes(last.data?.status)) label = 'Using tools…';
-      else label = 'Thinking…';
+      label = last?.role === 'agent' && last.text ? 'Responding…' : 'Thinking…';
+      // Updates mutate earlier rows, so inspect every tool in this turn.
+      // Active tools take precedence over reply text; older turns do not count.
+      for (let index = this.model.messages.length - 1; index >= 0; index--) {
+        const message = this.model.messages[index];
+        if (message.role === 'user') break;
+        if (message.role === 'tool' && ['pending', 'in_progress'].includes(message.data?.status ?? 'pending')) {
+          label = 'Using tools…';
+          break;
+        }
+      }
     }
     // Avoid repeating live-region announcements on every streamed chunk.
     if (this.activityLabel.textContent !== label) this.activityLabel.textContent = label;
