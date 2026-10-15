@@ -21,10 +21,10 @@ const STATES = {
 // DOM rendering only. Bot Markdown uses a restricted token renderer; note and
 // tool content stays plain text. No raw HTML or automatic resource loading.
 export class ChatPanel {
-  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, approvalDelay = APPROVAL_DELAY_MS }) {
+  constructor(container, controller, { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, slashCommands, approvalDelay = APPROVAL_DELAY_MS }) {
     this.container = container;
     this.model = controller;
-    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon };
+    this.actions = { getPath, savePath, attachSelection, attachFile, confirmReset, copyText, openNote, vaultPath, setIcon, slashCommands };
     this.document = container.ownerDocument;
     this.rows = new Map();
     this.timer = null;
@@ -39,6 +39,10 @@ export class ChatPanel {
     this.lastPath = null;
     this.shown = new Map(); // picker -> the option it last listed
     this.lastHistory = undefined;
+    this.shownCommands = [];
+    this.commandIndex = 0;
+    this.commandsDismissed = null; // The draft Escape closed the command menu on.
+    this.promptBlurred = false; // The menu belongs to the prompt only while it has focus.
     this.streaming = new Set();
     this.frame = null;
     this.lastFrame = 0;
@@ -166,8 +170,17 @@ export class ChatPanel {
     this.composer = this.el('textarea', 'sir-scribbles-prompt');
     this.composer.placeholder = 'What are you working on?';
     this.composer.rows = 2;
-    this.composer.addEventListener('input', () => { this.model.setDraft(this.composer.value); this.fitComposer(); this.renderControls(); });
+    this.composer.addEventListener('input', () => {
+      this.model.setDraft(this.composer.value);
+      this.fitComposer();
+      this.renderControls();
+      if (this.commandsDismissed !== this.model.draft) this.commandsDismissed = null;
+      this.renderCommands({ reset: true });
+    });
+    this.composer.addEventListener('blur', () => { this.promptBlurred = true; this.renderCommands(); });
+    this.composer.addEventListener('focus', () => { this.promptBlurred = false; this.renderCommands({ reset: true }); });
     this.composer.addEventListener('keydown', event => {
+      if (this.commandKey(event)) return;
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         if (!event.repeat && !this.send.disabled) void this.model.send(this.actions.getPath().trim());
@@ -192,6 +205,25 @@ export class ChatPanel {
       this.picker.value = '';
       if (files.length) void this.addFiles(files);
     });
+    // Experimental: the agent's slash commands, offered above the prompt.
+    this.commandMenu = this.el('div', 'sir-scribbles-commands');
+    this.commandMenu.id = `sir-scribbles-control-${++controlIds}`;
+    this.commandMenu.setAttribute('role', 'listbox');
+    this.commandMenu.hidden = true;
+    // Named by hidden text: an aria-label would show as a tooltip.
+    // Hidden from reading order; aria-labelledby still reads hidden text.
+    const commandLabel = this.el('span', 'sir-scribbles-sr-only', 'Slash commands');
+    commandLabel.hidden = true;
+    commandLabel.id = `${this.commandMenu.id}-label`;
+    this.commandMenu.setAttribute('aria-labelledby', commandLabel.id);
+    // One handler for every entry, so an entry rebuilt between press and
+    // release still picks; pressing keeps focus in the prompt.
+    this.commandMenu.addEventListener('mousedown', event => event.preventDefault());
+    this.commandMenu.addEventListener('click', event => {
+      const item = event.target.closest?.('[role="option"]');
+      const command = item && this.shownCommands[[...this.commandMenu.children].indexOf(item)];
+      if (command) this.chooseCommand(command);
+    });
     const toolbar = this.el('div', 'sir-scribbles-composer-toolbar');
     this.attachUpload = this.iconButton('paperclip', 'Attach images or text files', () => this.picker.click(), 'sir-scribbles-attach');
     this.attach = this.iconButton('quote', 'Attach selection', async () => {
@@ -214,9 +246,91 @@ export class ChatPanel {
     toolbar.append(this.attachUpload, this.attach, this.attachFile, this.labelFor(this.modelPicker, 'Model'), this.modelPicker,
       this.labelFor(this.effortPicker, 'Effort'), this.effortPicker, this.force, this.stop, this.send);
     this.attachmentArea = this.el('section', 'sir-scribbles-attachments');
-    composer.append(this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
+    composer.append(commandLabel, this.commandMenu, this.selectionArea, this.attachmentArea, this.composer, toolbar, this.picker);
     footer.append(this.activity, composer);
     this.container.append(footer);
+  }
+
+  // While the prompt is only "/" and part of a name: the agent's commands
+  // that start with it, then those that contain it.
+  matchingCommands() {
+    if (!this.actions.slashCommands?.() || !this.model.commands?.length || this.promptBlurred) return [];
+    const match = /^\/(\S*)$/u.exec(this.model.draft);
+    if (!match || this.commandsDismissed === this.model.draft) return [];
+    const query = match[1].toLowerCase();
+    const starts = this.model.commands.filter(command => command.name.toLowerCase().startsWith(query));
+    const contains = this.model.commands.filter(command => !starts.includes(command) && command.name.toLowerCase().includes(query));
+    return [...starts, ...contains];
+  }
+  // Arrows move through the menu, Enter or Tab picks, Escape closes it.
+  // Keys with modifiers keep their usual meaning. Returns whether the menu
+  // handled the key.
+  commandKey(event) {
+    const count = this.shownCommands.length;
+    if (!count || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey) return false;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      this.commandIndex = (this.commandIndex + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
+      this.renderCommands({ scroll: true });
+    } else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
+      this.chooseCommand(this.shownCommands[this.commandIndex]);
+    } else if (event.key === 'Escape') {
+      this.commandsDismissed = this.model.draft;
+      this.renderCommands();
+    } else return false;
+    event.preventDefault();
+    return true;
+  }
+  // Puts the command in the prompt for arguments; Enter then sends it.
+  chooseCommand(command) {
+    const text = `/${command.name} `;
+    this.composer.value = text;
+    this.model.setDraft(text);
+    this.fitComposer();
+    this.renderControls();
+    this.renderCommands();
+    this.composer.focus();
+    this.composer.setSelectionRange(text.length, text.length);
+  }
+  // Renders run on every chat change, often while a reply streams. Entries
+  // are rebuilt only when the list itself changes. Typing highlights the best
+  // match; a new list from the agent keeps the highlighted command.
+  renderCommands({ scroll = false, reset = false } = {}) {
+    const previous = this.shownCommands;
+    const selected = previous[this.commandIndex];
+    const commands = this.matchingCommands();
+    const same = (a, b) => a.name === b.name && a.description === b.description && a.hint === b.hint;
+    const changed = commands.length !== previous.length || commands.some((command, index) => !same(command, previous[index]));
+    this.shownCommands = commands;
+    if (changed) {
+      const kept = selected && !reset ? commands.findIndex(command => command.name === selected.name) : -1;
+      this.commandIndex = kept >= 0 ? kept : 0;
+      this.commandMenu.replaceChildren(...commands.map((command, index) => {
+        const item = this.el('div', 'sir-scribbles-command');
+        item.id = `${this.commandMenu.id}-${index}`;
+        item.setAttribute('role', 'option');
+        const name = this.el('span', 'sir-scribbles-command-name', `/${command.name}`);
+        if (command.hint) name.append(this.el('span', 'sir-scribbles-command-hint', ` ${command.hint}`));
+        item.append(name);
+        if (command.description) item.append(this.el('span', 'sir-scribbles-command-description', command.description));
+        return item;
+      }));
+    }
+    this.commandMenu.hidden = !commands.length;
+    // The prompt stays a plain text box; while the list is open it points at
+    // the highlighted entry.
+    if (!commands.length) {
+      this.composer.removeAttribute('aria-controls');
+      this.composer.removeAttribute('aria-activedescendant');
+      return;
+    }
+    const items = [...this.commandMenu.children];
+    items.forEach((item, index) => {
+      item.setAttribute('aria-selected', String(index === this.commandIndex));
+      item.classList.toggle('is-selected', index === this.commandIndex);
+    });
+    this.composer.setAttribute('aria-controls', this.commandMenu.id);
+    this.composer.setAttribute('aria-activedescendant', items[this.commandIndex].id);
+    if (scroll || changed) items[this.commandIndex].scrollIntoView?.({ block: 'nearest' });
   }
 
   // Start a new chat, or start the agent to list past ones.
@@ -375,6 +489,7 @@ export class ChatPanel {
     this.renderPicker(this.modelPicker, this.model.modelOption());
     this.renderPicker(this.effortPicker, this.model.effortOption());
     this.renderHistory();
+    this.renderCommands();
   }
 
   renderActivity() {

@@ -563,3 +563,15 @@ test('a file pasted during first-send startup holds the prompt back', async () =
   session.complete();
   await resend;
 });
+
+test('advertised slash commands follow the live session and reset with a new chat', async () => {
+  const { controller, session } = create();
+  await controller.start('/fixture');
+  session.emit('commands', [{ name: 'help', description: 'Help' }]);
+  assert.deepEqual(controller.commands, [{ name: 'help', description: 'Help' }]);
+  await controller.newChat();
+  assert.deepEqual(controller.commands, []);
+  // The closed session's late update no longer reaches the chat.
+  session.emit('commands', [{ name: 'late', description: '' }]);
+  assert.deepEqual(controller.commands, []);
+});

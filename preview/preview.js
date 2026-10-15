@@ -3,7 +3,7 @@ import { FloatingChat } from '../src/floating.js';
 
 // Development-only UI fixtures. Not bundled into the Obsidian plugin.
 class Fixture {
-  constructor() { this.title = ''; this.history = null; this.loading = false; this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.identity = ''; this.error = ''; this.configOptions = []; this.configPending = false; this.session = { permissions: new Map() }; }
+  constructor() { this.title = ''; this.history = null; this.loading = false; this.listeners = new Set(); this.cwd = '/Users/you/Notes/Studio'; this.state = 'not-started'; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.identity = ''; this.error = ''; this.configOptions = []; this.commands = []; this.configPending = false; this.session = { permissions: new Map() }; }
   on(event, fn) { this.listeners.add(fn); }
   removeAllListeners() { this.listeners.clear(); }
   async dispose() { this.removeAllListeners(); return true; }
@@ -41,9 +41,9 @@ class Fixture {
     this.start();
   }
   start() {
-    this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.configOptions = models('auto'); this.changed();
+    this.state = 'ready'; this.identity = 'Agent · UI fixture'; this.configOptions = models('auto'); this.commands = COMMANDS; this.changed();
   }
-  newChat() { this.title = ''; this.history = null; this.state = 'not-started'; this.configOptions = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.session.permissions.clear(); this.changed(); }
+  newChat() { this.title = ''; this.history = null; this.state = 'not-started'; this.configOptions = []; this.commands = []; this.messages = []; this.draft = ''; this.selection = null; this.file = null; this.attachments = []; this.session.permissions.clear(); this.changed(); }
   send() {
     if (this.state === 'connected') this.start();
     if (!this.title) this.title = (this.draft || 'Selection').split('\n')[0].slice(0, 48);
@@ -65,6 +65,13 @@ class Fixture {
   decide(card, optionId) { this.session.permissions.clear(); this.state = 'ready'; this.messages.push({ role: 'agent', text: optionId.endsWith('allow') ? 'Fixture approval selected. No file was written.' : 'Fixture denial selected. No file was written.' }); this.changed(); }
   stop() { this.session.permissions.clear(); this.state = 'ready'; this.changed(); }
 }
+// Sample slash commands; a real agent advertises its own.
+const COMMANDS = [
+  { name: 'context', description: 'Show or change the files in context', hint: 'add <path>' },
+  { name: 'compact', description: 'Summarize the conversation to free context' },
+  { name: 'plan', description: 'Plan before making changes', hint: '<goal>' },
+  { name: 'usage', description: 'Show usage for this session' },
+];
 const PAST = [
   { sessionId: 'a', title: 'Launch announcement options', updatedAt: Date.now() - 36e5 * 5 },
   { sessionId: 'b', title: 'Summarize research interviews', updatedAt: Date.now() - 864e5 * 3 },
@@ -111,7 +118,7 @@ let model = tabs.active;
 tabs.on('change', () => { model = tabs.active; });
 const selection = { path: 'Projects/Launch notes.md', from: 7, to: 7, text: 'Give the user a clear starting point, let them choose the context, and keep every action visible.' };
 const actions = {
-  setIcon,
+  setIcon, slashCommands: () => true,
   getPath: () => '/Users/you/.local/bin/agent', savePath: async () => {}, attachSelection: () => selection,
   attachFile: () => ({ kind: 'file', path: selection.path }),
   openNote: target => { model.error = `Preview note link: ${typeof target === 'string' ? target : target.path}. No vault is open in this fixture.`; model.changed(); },

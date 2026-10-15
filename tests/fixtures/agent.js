@@ -46,6 +46,8 @@ input.on('line', line => {
       agentInfo: { name: 'fixture', version: 'test' },
     });
   } else if (frame.method === 'session/new') {
+    // Kiro may announce commands before it answers session/new.
+    if (mode === 'commands') update({ sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'help', description: 'Show help' }] });
     reply(frame.id, mode.startsWith('config') ? { sessionId: 'fixture-session', configOptions: models('auto') } : { sessionId: 'fixture-session' });
     if (grandchild) update({ sessionUpdate: 'fixture-child', pid: grandchild.pid });
   } else if (frame.method === 'session/list') {

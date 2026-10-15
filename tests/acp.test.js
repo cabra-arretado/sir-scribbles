@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { AcpSession, FrameReader, sanitizeConfigOptions } from '../src/acp.js';
+import { AcpSession, FrameReader, sanitizeConfigOptions, sanitizeCommands } from '../src/acp.js';
 import { LIMITS } from '../src/limits.js';
 import { ChatController } from '../src/chat.js';
 import { validateExecutable, AGENT_ARGS } from '../src/process.js';
@@ -555,4 +555,42 @@ test('refuses an image prompt larger than one frame without ending the session',
   await assert.rejects(session.prompt('big', [{ mimeType: 'image/png', data: 'A'.repeat(64 * 1024) }]), { code: 'IMAGE_LIMIT' });
   assert.equal(session.state, 'ready');
   assert.equal((await session.prompt('still here')).stopReason, 'end_turn');
+});
+
+test('advertised slash commands keep single-word names, descriptions and hints only', () => {
+  const commands = sanitizeCommands([
+    { name: 'context', description: 'Show context', input: { hint: 'add <path>' } },
+    { name: '/compact', description: 'Compact the chat' },
+    { name: 'context', description: 'Duplicate' },
+    { name: 'two words' }, { name: 'a/b' }, { name: '' }, { name: 7 }, null,
+    { name: 'plain', description: 3, input: { hint: '' } },
+    { name: 'evil\u202Etxt' }, { name: 'zero\u200Bwidth' }, { name: 'bell\u0007' },
+  ]);
+  assert.deepEqual(commands, [
+    { name: 'context', description: 'Show context', hint: 'add <path>' },
+    { name: 'compact', description: 'Compact the chat' },
+    { name: 'plain', description: '' },
+  ]);
+  assert.deepEqual(sanitizeCommands('nope'), []);
+  assert.equal(sanitizeCommands(Array.from({ length: 100 }, (_, i) => ({ name: `c${i}` }))).length, LIMITS.commands);
+});
+
+test('a commands update replaces the list and never reaches the transcript', () => {
+  const session = Object.create(AcpSession.prototype);
+  Object.assign(session, { limits: LIMITS, commands: [], toolCalls: new Map() });
+  const events = [];
+  session.emit = (name, value) => events.push([name, value]);
+  session.deliver({ sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'help', description: 'Help' }] });
+  session.deliver({ sessionUpdate: 'available_commands_update', availableCommands: [] });
+  assert.deepEqual(events, [['commands', [{ name: 'help', description: 'Help' }]], ['commands', []]]);
+  assert.deepEqual(session.commands, []);
+});
+
+test('commands sent before the chat opens are kept for it', async t => {
+  const session = create(t, 'commands');
+  const seen = [];
+  session.on('commands', commands => seen.push(commands));
+  await session.start('/fixture');
+  assert.deepEqual(session.commands, [{ name: 'help', description: 'Show help' }]);
+  assert.equal(seen.length, 1);
 });

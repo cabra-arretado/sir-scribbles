@@ -154,8 +154,8 @@ seconds if needed. Each conversation is discarded from the sidebar; reopening
 the sidebar starts with one fresh tab. Crashes, force quits, and descendants that detach from the process group
 cannot be guaranteed to clean up.
 
-Only the executable path and the floating chat preferences (on or off, opacity,
-window size) are saved, in this device's local storage. The plugin does not archive
+Only the executable path, the floating chat preferences (on or off, opacity,
+window size), the chat text settings and the experimental switches are saved, in this device's local storage. The plugin does not archive
 prompts, attachments, transcripts, session IDs or tool details. Past chats come
 from the agent each time you open the list. Kiro/provider
 history, inherited environment, hooks, MCP servers and native permissions remain
@@ -173,6 +173,20 @@ tool output and the start screen keep Obsidian's interface sizes.
 Both settings apply wherever the chats are shown: the sidebar, a sidebar moved to
 its own window, or the floating chat. They are stored on this device, for this
 vault.
+
+### Slash commands (experimental)
+
+Turn on **Settings → Sir Scribbles → Experimental → Slash commands** to have a
+chat list the commands its agent offers. Typing `/` at the start of an empty
+prompt opens the list; keep typing to filter it. Use the arrow keys and Enter or
+Tab, or click, to put a command in the prompt, add any arguments, then send it.
+Escape closes the list. The list comes from the agent (ACP
+`available_commands_update`), so it can differ between chats and agent versions,
+and stays empty until the agent sends one. A chosen command is sent as an
+ordinary prompt; the plugin does not run commands itself. Kiro CLI V3 runs some of
+its terminal commands, such as `/model`, only through its own client, so not
+every Kiro command is available here. The switch is off by default and is stored
+on this device, for this vault.
 
 ## Help your agent write clickable links
 

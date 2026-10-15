@@ -239,6 +239,18 @@
 .sir-scribbles .sir-scribbles-danger:hover { background: rgba(var(--color-red-rgb), .1); }
 .sir-scribbles .sir-scribbles-danger:not([hidden]) ~ .sir-scribbles-send { margin-left: 0; }
 
+/* Experimental slash commands: a list floating just above the composer. */
+.sir-scribbles-commands {
+  position: absolute; left: 0; right: 0; bottom: calc(100% + var(--size-2-2)); z-index: 2; max-height: min(240px, 40vh); overflow-y: auto;
+  padding: var(--size-2-2); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m);
+  background: var(--background-primary); box-shadow: var(--shadow-s);
+}
+.sir-scribbles-command { display: flex; flex-direction: column; gap: var(--size-2-1); padding: var(--size-2-2) var(--size-4-2); border-radius: var(--radius-s); cursor: var(--cursor); min-width: 0; }
+.sir-scribbles-command:hover, .sir-scribbles-command.is-selected { background: var(--background-modifier-hover); }
+.sir-scribbles-command-name { font-family: var(--font-monospace); font-size: var(--font-ui-small); color: var(--text-normal); overflow-wrap: anywhere; }
+.sir-scribbles-command-hint { color: var(--text-faint); }
+.sir-scribbles-command-description { font-size: var(--font-ui-smaller); color: var(--text-muted); overflow-wrap: anywhere; }
+
 /* Attached context: compact chips above the prompt. */
 .sir-scribbles-selection { display: flex; flex-direction: column; gap: var(--size-2-2); padding: var(--size-4-1) var(--size-4-1) 0; }
 .sir-scribbles-context-card { border-radius: var(--radius-m); background: var(--background-modifier-hover); min-width: 0; }
