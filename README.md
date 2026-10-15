@@ -85,6 +85,8 @@ Open the sidebar through the ribbon button or the **Sir Scribbles: Open chat** c
 4. Click **Send** or press Enter. Shift+Enter inserts a newline. Bot replies render
    Markdown; prompts, context previews, and tool activity stay
    plain text. Messages have timestamps and Copy controls that preserve the source.
+   An activity row above the message box shows **Thinking…**, **Responding…**, or
+   **Using tools…** while the agent works, with animated dots that respect reduced motion.
    Raw HTML and images stay inert; web links, including bare `https://` addresses,
    open only when clicked. Note links (`[[Note|Label]]`, Markdown note paths,
    absolute or `file://` paths inside the vault, and `obsidian://open` links

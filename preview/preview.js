@@ -136,6 +136,12 @@ const floating = new FloatingChat(document, {
 floating.enable();
 tabs.on('change', () => floating.setActivity(tabs.chats.map(chat => chat.state)));
 document.getElementById('initial').onclick = () => model.newChat();
+document.getElementById('thinking').onclick = () => {
+  model.newChat(); model.start();
+  model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }];
+  model.state = 'working';
+  model.changed();
+};
 document.getElementById('conversation').onclick = () => {
   model.newChat(); model.start();
   model.messages = [{ role: 'user', text: 'Help me turn this into a concise product principle.' }, { role: 'tool', text: '{"path":"Projects/Launch notes.md"}', data: { title: 'Read Launch notes.md', status: 'completed' } }, { role: 'tool', text: '{"query":"product principles examples"}', data: { title: 'web_search', status: 'completed', rawInput: { query: 'product principles examples' } } }, { role: 'agent', text: '## Keep the user in the loop\n\n- **Start deliberately.** Keep every action visible.\n- **Share context explicitly.** Attach only what helps.\n- **Review the result.** Keep the conversation close to your notes.\n\nSee [[Projects/Launch notes|Launch notes]].\n\nUse `Shift + Enter` for a newline.\n\n```js\nconst principle = "Keep the user in the loop";\n```' }];

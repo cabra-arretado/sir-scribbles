@@ -52,6 +52,81 @@ test('opening panel never starts the agent and initial controls express state', 
   assert.ok(root.textContent.includes('Kiro CLI (V3) is currently the only supported agent'));
 });
 
+test('activity stays visible through thinking, replies and tools, and clears outside a live turn', t => {
+  const { model, panel } = create(t);
+  assert.equal(panel.activity.hidden, true);
+  assert.equal(panel.activity.getAttribute('role'), 'status');
+  assert.equal(panel.activity.firstChild.getAttribute('aria-hidden'), 'true');
+  assert.equal(panel.activity.parentNode, panel.composer.closest('footer'));
+
+  model.messages.push({ role: 'user', text: 'Help me think.' });
+  model.state = 'working';
+  panel.render();
+  assert.equal(panel.activity.hidden, false);
+  assert.equal(panel.activityLabel.textContent, 'Thinking…');
+
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Let me check.' } });
+  panel.render();
+  assert.equal(panel.activity.hidden, false);
+  assert.equal(panel.activityLabel.textContent, 'Responding…');
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'read', title: 'Read note', status: 'in_progress' });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Using tools…');
+  model.update({ sessionUpdate: 'tool_call_update', toolCallId: 'read', status: 'completed' });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Thinking…');
+
+  for (const state of ['waiting-for-approval', 'stopping', 'ready', 'failed', 'terminated', 'not-started']) {
+    model.state = state;
+    panel.render();
+    assert.equal(panel.activity.hidden, true, state);
+    assert.equal(panel.activityLabel.textContent, '', state);
+  }
+  model.state = 'working';
+  model.loading = true;
+  panel.render();
+  assert.equal(panel.activity.hidden, true, 'history replay is not a live turn');
+  model.loading = false;
+  panel.render();
+  assert.equal(panel.activity.hidden, false, 'activity resumes after approval');
+});
+
+test('activity tracks concurrent tools through out-of-order completion and reply streaming', t => {
+  const { model, panel } = create(t);
+  model.messages.push({ role: 'user', text: 'Read both notes.' });
+  model.state = 'working';
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'a', title: 'Read A', status: 'in_progress' });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'b', title: 'Read B', status: 'in_progress' });
+  model.update({ sessionUpdate: 'tool_call_update', toolCallId: 'b', status: 'completed' });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Using tools…', 'A is still running after B finishes');
+
+  model.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'B is ready; waiting for A.' } });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Using tools…', 'active tools take precedence over reply text');
+
+  model.update({ sessionUpdate: 'tool_call_update', toolCallId: 'a', status: 'failed' });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Responding…', 'no tools remain active');
+});
+
+test('activity ignores unfinished tools from older turns and treats omitted status as pending', t => {
+  const { model, panel } = create(t);
+  model.messages.push({ role: 'user', text: 'Previous turn.' });
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'old', status: 'in_progress' });
+  model.messages.push({ role: 'user', text: 'New turn.' });
+  model.state = 'working';
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Thinking…');
+
+  model.update({ sessionUpdate: 'tool_call', toolCallId: 'new', title: 'Read note' });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Using tools…');
+  model.update({ sessionUpdate: 'tool_call_update', toolCallId: 'new', status: 'completed' });
+  panel.render();
+  assert.equal(panel.activityLabel.textContent, 'Thinking…', 'the old tool remains outside this turn');
+});
+
 test('HTML, remote-media syntax, terminal escapes and tool input render as inert text', t => {
   const { model, root, panel } = create(t);
   const payload = '<img src="https://never.test/x" onerror="evil()"><script>evil()</script>\u001b[31m';

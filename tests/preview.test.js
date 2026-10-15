@@ -19,8 +19,13 @@ test('the UI preview initializes and shows its fixtures', async t => {
   await import('../preview/preview.js');
   const panel = dom.window.document.getElementById('panel');
   assert.ok(panel.querySelector('.sir-scribbles-model'));
+  dom.window.document.getElementById('thinking').click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(panel.querySelector('.sir-scribbles-activity').hidden, false);
+  assert.equal(panel.querySelector('.sir-scribbles-activity').textContent, 'Thinking…');
   dom.window.document.getElementById('conversation').click();
   await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(panel.querySelector('.sir-scribbles-effort').hidden, true);
+  assert.equal(panel.querySelector('.sir-scribbles-activity').hidden, true);
   assert.ok([...panel.querySelectorAll('summary')].some(summary => summary.textContent.includes('“product principles examples”')));
 });
