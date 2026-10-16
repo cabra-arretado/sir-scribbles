@@ -70,7 +70,7 @@ export function noteLinkTarget(href, encoded = false, vaultPath = '') {
       const root = vaultPath.replace(/\/+$/, '') + '/';
       if (decoded.startsWith(root)) decoded = decoded.slice(root.length);
     }
-    if (!decoded || /[\u0000-\u001f\\]/.test(decoded) || decoded.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(decoded)) return null;
+    if (!decoded || /[\p{Cc}\\]/u.test(decoded) || decoded.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(decoded)) return null;
     return decoded;
   } catch { return null; }
 }
